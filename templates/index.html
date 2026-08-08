@@ -539,8 +539,12 @@ function render() {
   if (!REPORT) return;
   const u = REPORT.underlying, c = REPORT.chain, gx = REPORT.gex, s = REPORT.spx;
   const d = windowed();
-  const ivGap = Math.abs(c.atm_iv * 100 - u.vix);
-  const ivState = ivGap <= 5 ? ["good", "in line"] : ["critical", "divergent"];
+  // any of these can arrive null when the chain is too thin to measure them
+  const ivPct = c.atm_iv == null ? null : c.atm_iv * 100;
+  const ivState = ivPct == null || u.vix == null ? ["warning", "not comparable"]
+    : Math.abs(ivPct - u.vix) <= 5 ? ["good", "in line"] : ["critical", "divergent"];
+  const rsiZone = u.rsi == null ? "unavailable"
+    : u.rsi >= 70 ? "overbought" : u.rsi <= 30 ? "oversold" : "neutral zone";
   const longGamma = gx.net >= 0;
 
   $("#asOf").textContent = `${REPORT.ticker} chain · ${REPORT.expiry} · as of ${REPORT.as_of.replace("T", " ")}`;
@@ -565,9 +569,9 @@ function render() {
 
     <div class="kpis">
       ${tile("Gap", signed(u.gap_pct) + "%", `open vs prev close ${fmtNum(u.prev_close)}`)}
-      ${tile("RSI(14)", fmtNum(u.rsi, 1), u.rsi >= 70 ? "overbought" : u.rsi <= 30 ? "oversold" : "neutral zone")}
+      ${tile("RSI(14)", fmtNum(u.rsi, 1), rsiZone)}
       ${tile("VWAP", fmtNum(u.vwap), `${signed(u.vwap_vs_spot_pct)}% vs spot`)}
-      ${tile("ATM IV", (c.atm_iv * 100).toFixed(1) + "%",
+      ${tile("ATM IV", ivPct == null ? "—" : ivPct.toFixed(1) + "%",
         `<span class="chip"><span class="dot" style="background:var(--${ivState[0]})"></span>${ivState[1]} vs VIX ${fmtNum(u.vix, 1)}</span>`)}
       ${tile("Expected move", "±" + fmtNum(c.exp_move), `${fmtLvl(u.spot - c.exp_move)} – ${fmtLvl(u.spot + c.exp_move)}`)}
       ${tile("P/C open interest", fmtNum(c.pc_oi, 3), `P/C volume ${fmtNum(c.pc_volume, 3)} — different measures`)}
@@ -653,13 +657,20 @@ async function load() {
   });
   try {
     const r = await fetch("/api/report?" + q);
-    const j = await r.json();
+    // read as text first: a proxy or error page answers HTML, and parsing that
+    // as JSON reports a useless "Unexpected token <" instead of the real cause
+    const body = await r.text();
+    let j;
+    try { j = JSON.parse(body); }
+    catch {
+      throw new Error(`HTTP ${r.status} returned ${r.headers.get("content-type") || "unknown type"} ` +
+        `instead of JSON — first bytes: ${body.slice(0, 120).replace(/\s+/g, " ")}`);
+    }
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     REPORT = j;
     render();
   } catch (e) {
-    $("#err").textContent = `Could not load data: ${e.message}. ` +
-      `Yahoo Finance must be reachable from this machine.`;
+    $("#err").textContent = `Could not load data: ${e.message}`;
     $("#err").hidden = false;
   } finally {
     $("#loading").hidden = true;

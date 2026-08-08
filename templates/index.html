@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPX gamma dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-calls:   #2a78d6;
+    --series-puts:    #eb6834;
+    --pos:            #2a78d6;
+    --neg:            #e34948;
+    --neutral:        #f0efec;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-calls:   #3987e5;
+      --series-puts:    #d95926;
+      --pos:            #3987e5;
+      --neg:            #e66767;
+      --neutral:        #383835;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-calls:   #3987e5;
+    --series-puts:    #d95926;
+    --pos:            #3987e5;
+    --neg:            #e66767;
+    --neutral:        #383835;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  header.top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  header.top h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .as-of { color: var(--text-muted); font-size: 13px; }
+
+  /* one filter row above everything it scopes */
+  .filters {
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end;
+    padding: 14px 16px; margin: 14px 0 20px;
+    background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 10px;
+  }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+  .field input, .field select, button {
+    font: inherit; color: var(--text-primary); background: var(--page);
+    border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px;
+  }
+  .field input { width: 92px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--baseline); }
+  .spacer { flex: 1; }
+
+  .banner {
+    padding: 12px 14px; border-radius: 9px; margin-bottom: 18px;
+    border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-secondary); font-size: 13px;
+  }
+  .banner.error { border-left: 3px solid var(--critical); }
+  .banner[hidden] { display: none; }
+
+  /* content holds its previous render while refetching -- no skeleton flash */
+  #content { transition: opacity .18s ease; }
+  #content.loading { opacity: .55; }
+
+  .hero-card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px 22px; margin-bottom: 16px;
+    display: flex; gap: 34px; align-items: center; flex-wrap: wrap;
+  }
+  .hero-label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+  .hero-value { font-size: 52px; font-weight: 600; line-height: 1.05; letter-spacing: -0.02em; }
+  .hero-sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px;
+  }
+  .tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+  .tile .v { font-size: 25px; font-weight: 600; margin-top: 3px; letter-spacing: -0.01em; }
+  .tile .d { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px 14px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
+  .card .sub { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 14px; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; padding-top: 2px; }
+  .legend .item { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
+  .legend .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  .chart-host { position: relative; width: 100%; overflow-x: auto; }
+  svg { display: block; }
+  svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .tick { fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .marklabel { fill: var(--text-secondary); font-weight: 600; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12.5px; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.16); z-index: 10;
+  }
+  .tooltip .tt-k { color: var(--text-muted); }
+  .tooltip .tt-row { display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+  .tooltip .tt-strike { font-weight: 600; margin-bottom: 4px; }
+  .tooltip b { font-variant-numeric: tabular-nums; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: .04em; }
+  .table-wrap { max-height: 340px; overflow: auto; }
+  details.tableview { margin-top: 12px; border-top: 1px solid var(--grid); padding-top: 10px; }
+  details.tableview summary { cursor: pointer; font-size: 12.5px; color: var(--text-secondary); }
+
+  .caveat { font-size: 12px; color: var(--text-muted); margin-top: 12px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>SPX gamma dashboard</h1>
+    <span class="as-of" id="asOf"></span>
+    <span class="spacer" style="flex:1"></span>
+    <button id="themeBtn" type="button">Theme</button>
+  </header>
+
+  <div class="filters">
+    <div class="field">
+      <label for="ticker">Chain source</label>
+      <input id="ticker" value="SPY" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="index">Index</label>
+      <input id="index" value="^GSPC" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="expiry">Expiry</label>
+      <select id="expiry"><option value="">nearest</option></select>
+    </div>
+    <div class="field">
+      <label for="window">Strike window</label>
+      <select id="window">
+        <option value="0.02">±2%</option>
+        <option value="0.05" selected>±5%</option>
+        <option value="0.10">±10%</option>
+        <option value="1">all</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="units">Levels in</label>
+      <select id="units">
+        <option value="spx" selected>SPX equivalent</option>
+        <option value="under">Underlying $</option>
+      </select>
+    </div>
+    <span class="spacer"></span>
+    <div class="field">
+      <label for="auto">Auto-refresh</label>
+      <select id="auto">
+        <option value="0">off</option>
+        <option value="60" selected>60s</option>
+        <option value="300">5 min</option>
+      </select>
+    </div>
+    <button id="refresh" type="button">Refresh</button>
+  </div>
+
+  <div class="banner error" id="err" hidden></div>
+  <div class="banner" id="loading">Loading from Yahoo Finance…</div>
+
+  <div id="content" hidden></div>
+
+  <p class="caveat">
+    Yahoo publishes no options chain for <code>^SPX</code>, so the chain is read from the
+    proxy ETF and converted with the live index/ETF ratio. Open interest updates once daily
+    pre-open, so intraday GEX reflects the prior session's OI. GEX assumes the standard
+    dealer convention (long calls, short puts) — a convention, not observed positioning.
+  </p>
+</div>
+
+<script>
+"use strict";
+
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+let REPORT = null;
+
+/* ---------- theme ---------- */
+const root = document.documentElement;
+if (localStorage.getItem("theme")) root.dataset.theme = localStorage.getItem("theme");
+$("#themeBtn").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = root.dataset.theme || (dark ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  root.dataset.theme = next;
+  localStorage.setItem("theme", next);
+  render();
+};
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+
+/* ---------- formatting ---------- */
+const fmtMoney = v => {
+  const a = Math.abs(v);
+  if (a >= 1e9) return (v/1e9).toFixed(2) + "B";
+  if (a >= 1e6) return (v/1e6).toFixed(1) + "M";
+  if (a >= 1e3) return (v/1e3).toFixed(1) + "K";
+  return v.toFixed(0);
+};
+/* $M with negative zero flattened, so a rounding artifact never prints "-0.0M" */
+const fmtM = v => { const x = v / 1e6; return "$" + (Math.abs(x) < 0.05 ? 0 : x).toFixed(1) + "M"; };
+const fmtNum = (v, d=2) => v == null || Number.isNaN(v) ? "—"
+  : v.toLocaleString(undefined, {minimumFractionDigits:d, maximumFractionDigits:d});
+const signed = (v, d=2) => (v >= 0 ? "+" : "") + fmtNum(v, d);
+
+/* Levels are quoted either in underlying dollars or converted to SPX points. */
+function lvl(px) {
+  if (px == null) return null;
+  return $("#units").value === "spx" ? px * REPORT.spx.ratio : px;
+}
+const lvlUnit = () => $("#units").value === "spx" ? "" : "$";
+const fmtLvl = px => px == null ? "—" : lvlUnit() + fmtNum(lvl(px), $("#units").value === "spx" ? 0 : 2);
+
+/* ---------- tiny SVG helpers ---------- */
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+/* bar with a 4px rounded data-end, square at the baseline */
+function barPath(x, w, yBase, yVal) {
+  const up = yVal <= yBase;
+  const h = Math.abs(yBase - yVal);
+  const r = Math.max(0, Math.min(4, w / 2, h));
+  const y = Math.min(yBase, yVal);
+  if (h <= 0.01) return `M${x},${yBase}h${w}`;
+  return up
+    ? `M${x},${y+h} V${y+r} Q${x},${y} ${x+r},${y} H${x+w-r} Q${x+w},${y} ${x+w},${y+r} V${y+h} Z`
+    : `M${x},${y} V${y+h-r} Q${x},${y+h} ${x+r},${y+h} H${x+w-r} Q${x+w},${y+h} ${x+w},${y+h-r} V${y} Z`;
+}
+/* approximate rendered width of an 11px system-sans label */
+const textW = s => s.length * 6.15 + 10;
+/* greedy row assignment so labels never overlap: row 0 until it would collide */
+function assignRows(items) {
+  const rowRight = [];
+  items.slice().sort((a, b) => a.x - b.x).forEach(m => {
+    const w = textW(m.text), left = m.x - w / 2;
+    let r = 0;
+    while (rowRight[r] != null && rowRight[r] > left - 6) r++;
+    rowRight[r] = m.x + w / 2;
+    m.row = r;
+  });
+  return rowRight.length;
+}
+function niceTicks(min, max, count) {
+  const span = (max - min) || 1;
+  const raw = span / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].find(m => m * mag >= raw) * mag;
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(v);
+  return out;
+}
+
+/* ---------- tooltip ---------- */
+function attachTip(host, svg, bands, builder) {
+  let tip = host.querySelector(".tooltip");
+  if (!tip) { tip = document.createElement("div"); tip.className = "tooltip"; host.appendChild(tip); }
+  bands.forEach(b => {
+    b.rect.addEventListener("mousemove", ev => {
+      tip.innerHTML = builder(b.i);
+      tip.style.opacity = 1;
+      const hr = host.getBoundingClientRect();
+      let x = ev.clientX - hr.left + 14;
+      if (x + tip.offsetWidth > host.clientWidth) x = ev.clientX - hr.left - tip.offsetWidth - 14;
+      tip.style.left = x + "px";
+      tip.style.top = (ev.clientY - hr.top + 14) + "px";
+    });
+    b.rect.addEventListener("mouseleave", () => { tip.style.opacity = 0; });
+  });
+}
+
+/* ---------- strike window ---------- */
+function windowed() {
+  const bs = REPORT.by_strike, spot = REPORT.underlying.spot;
+  const pct = parseFloat($("#window").value);
+  const idx = bs.strikes.map((s, i) => i).filter(i =>
+    pct >= 1 || Math.abs(bs.strikes[i] - spot) / spot <= pct);
+  const pick = k => idx.map(i => bs[k][i]);
+  return { strikes: pick("strikes"), net_gex: pick("net_gex"),
+           call_gex: pick("call_gex"), put_gex: pick("put_gex"),
+           call_oi: pick("call_oi"), put_oi: pick("put_oi") };
+}
+
+/* ================= chart 1: net GEX by strike (diverging) ================= */
+function chartGex(host, d) {
+  host.innerHTML = "";
+  const W = Math.max(host.clientWidth, 340), H = 340;
+  const M = { t: 16, r: 16, b: 40, l: 62 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}` }, host);
+  const g = el("g", { transform: `translate(${M.l},${M.t})` }, svg);
+
+  const vals = d.net_gex.map(v => v / 1e6);
+  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  const pad = (hi - lo) * 0.08 || 1;
+  const y = v => ih - ((v - (lo - pad)) / ((hi + pad) - (lo - pad))) * ih;
+  const band = iw / d.strikes.length;
+  const gap = Math.min(2, band * 0.28);
+  const bw = Math.max(1, Math.min(24, band - gap));
+  const x = i => i * band + (band - bw) / 2;
+
+  // gridlines + y ticks (hairline, solid, recessive)
+  niceTicks(lo - pad, hi + pad, 5).forEach(t => {
+    el("line", { x1: 0, x2: iw, y1: y(t), y2: y(t), stroke: css("--grid"), "stroke-width": 1 }, g);
+    el("text", { x: -10, y: y(t) + 4, "text-anchor": "end", class: "tick" }, g).textContent = "$" + t.toFixed(0) + "M";
+  });
+  el("line", { x1: 0, x2: iw, y1: y(0), y2: y(0), stroke: css("--baseline"), "stroke-width": 1 }, g);
+
+  // bars, colored by polarity
+  vals.forEach((v, i) => {
+    el("path", { d: barPath(x(i), bw, y(0), y(v)), fill: v >= 0 ? css("--pos") : css("--neg") }, g);
+  });
+
+  // x ticks: ~8 evenly spaced strikes
+  const every = Math.max(1, Math.round(d.strikes.length / 8));
+  d.strikes.forEach((s, i) => {
+    if (i % every) return;
+    el("text", { x: x(i) + bw / 2, y: ih + 18, "text-anchor": "middle", class: "tick" }, g)
+      .textContent = fmtNum(lvl(s), 0);
+  });
+
+  // reference markers: spot and zero gamma
+  const posOf = px => {
+    const arr = d.strikes;
+    if (px < arr[0] || px > arr[arr.length - 1]) return null;
+    let i = 0; while (i < arr.length - 1 && arr[i + 1] < px) i++;
+    const t = (px - arr[i]) / ((arr[i + 1] ?? arr[i] + 1) - arr[i] || 1);
+    return (i + t) * band + band / 2;
+  };
+  const markers = [["Spot", REPORT.underlying.spot, css("--text-secondary")],
+                   ["Zero γ", REPORT.gex.zero_gamma, css("--text-muted")]]
+    .filter(([, px]) => px != null)
+    .map(([label, px, color]) => ({ label, px, color, x: posOf(px), text: `${label} ${fmtLvl(px)}` }))
+    .filter(m => m.x != null);
+  assignRows(markers);
+  markers.forEach(m => {
+    el("line", { x1: m.x, x2: m.x, y1: 0, y2: ih, stroke: m.color, "stroke-width": 1 }, g);
+    // anchor the label inside the plot so it never runs off the right edge
+    const w = textW(m.text);
+    m.flip = m.x + w > iw;
+    m.left = m.flip ? m.x - 5 - w : m.x + 5;
+    m.right = m.left + w;
+    m.labelY = 11 + m.row * 15;
+    el("text", { x: m.x + (m.flip ? -5 : 5), y: m.labelY, "text-anchor": m.flip ? "end" : "start", class: "marklabel" }, g)
+      .textContent = m.text;
+  });
+
+  // direct-label the single largest absolute contributor -- skipped when its
+  // box would overlap a reference-marker label
+  const ext = vals.reduce((b, v, i) => Math.abs(v) > Math.abs(vals[b]) ? i : b, 0);
+  const etext = "$" + vals[ext].toFixed(0) + "M";
+  const ew = textW(etext);
+  const lx = Math.min(Math.max(x(ext) + bw / 2, ew / 2), iw - ew / 2);
+  const ly = vals[ext] >= 0 ? y(vals[ext]) - 7 : y(vals[ext]) + 15;
+  const clashes = markers.some(m =>
+    lx - ew / 2 < m.right + 6 && lx + ew / 2 > m.left - 6 && Math.abs(ly - m.labelY) < 13);
+  if (!clashes) {
+    el("text", { x: lx, y: ly, "text-anchor": "middle", class: "marklabel" }, g).textContent = etext;
+  }
+
+  // hover bands, wider than the bars
+  const bands = d.strikes.map((s, i) => ({
+    i, rect: el("rect", { x: i * band, y: 0, width: Math.max(band, 8), height: ih, fill: "transparent" }, g)
+  }));
+  attachTip(host, svg, bands, i => `
+    <div class="tt-strike">Strike ${fmtLvl(d.strikes[i])}</div>
+    <div class="tt-row"><span class="tt-k">Net GEX</span><b>${fmtM(d.net_gex[i])}</b></div>
+    <div class="tt-row"><span class="tt-k">Call</span><b>${fmtM(d.call_gex[i])}</b></div>
+    <div class="tt-row"><span class="tt-k">Put</span><b>${fmtM(d.put_gex[i])}</b></div>`);
+}
+
+/* ================= chart 2: open interest by strike (2 series) ================= */
+function chartOi(host, d) {
+  host.innerHTML = "";
+  const W = Math.max(host.clientWidth, 340), H = 300;
+  const M = { t: 16, r: 16, b: 40, l: 62 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}` }, host);
+  const g = el("g", { transform: `translate(${M.l},${M.t})` }, svg);
+
+  const hi = Math.max(1, ...d.call_oi, ...d.put_oi);
+  const y = v => ih - (v / (hi * 1.08)) * ih;
+  const band = iw / d.strikes.length;
+  const gap = Math.min(2, band * 0.18);
+  const bw = Math.max(1, Math.min(24, (band - gap * 2) / 2));
+
+  niceTicks(0, hi * 1.08, 4).forEach(t => {
+    el("line", { x1: 0, x2: iw, y1: y(t), y2: y(t), stroke: css("--grid"), "stroke-width": 1 }, g);
+    el("text", { x: -10, y: y(t) + 4, "text-anchor": "end", class: "tick" }, g).textContent = fmtMoney(t);
+  });
+  el("line", { x1: 0, x2: iw, y1: ih, y2: ih, stroke: css("--baseline"), "stroke-width": 1 }, g);
+
+  d.strikes.forEach((s, i) => {
+    const x0 = i * band + gap / 2;
+    el("path", { d: barPath(x0, bw, ih, y(d.call_oi[i])), fill: css("--series-calls") }, g);
+    el("path", { d: barPath(x0 + bw + gap, bw, ih, y(d.put_oi[i])), fill: css("--series-puts") }, g);
+  });
+
+  const every = Math.max(1, Math.round(d.strikes.length / 8));
+  d.strikes.forEach((s, i) => {
+    if (i % every) return;
+    el("text", { x: i * band + band / 2, y: ih + 18, "text-anchor": "middle", class: "tick" }, g)
+      .textContent = fmtNum(lvl(s), 0);
+  });
+
+  // direct-label the two walls only
+  [[REPORT.chain.call_wall, "Call wall"], [REPORT.chain.put_wall, "Put wall"]].forEach(([px, label]) => {
+    const i = d.strikes.indexOf(px); if (i < 0) return;
+    const top = Math.min(y(d.call_oi[i]), y(d.put_oi[i]));
+    el("text", {
+      x: Math.min(Math.max(i * band + band / 2, 30), iw - 30),
+      y: Math.max(top - 7, 10), "text-anchor": "middle", class: "marklabel"
+    }, g).textContent = label;
+  });
+
+  const bands = d.strikes.map((s, i) => ({
+    i, rect: el("rect", { x: i * band, y: 0, width: Math.max(band, 8), height: ih, fill: "transparent" }, g)
+  }));
+  attachTip(host, svg, bands, i => `
+    <div class="tt-strike">Strike ${fmtLvl(d.strikes[i])}</div>
+    <div class="tt-row"><span class="tt-k">Call OI</span><b>${d.call_oi[i].toLocaleString()}</b></div>
+    <div class="tt-row"><span class="tt-k">Put OI</span><b>${d.put_oi[i].toLocaleString()}</b></div>`);
+}
+
+/* ================= key levels ladder ================= */
+function chartLadder(host) {
+  host.innerHTML = "";
+  const c = REPORT.chain, u = REPORT.underlying, gx = REPORT.gex;
+  const W = Math.max(host.clientWidth, 340);
+  const M = { r: 24, b: 34, l: 24 };
+  const iw = W - M.l - M.r;
+
+  const marks = [
+    { label: "Put wall", px: c.put_wall, color: css("--series-puts") },
+    { label: "Max pain", px: c.max_pain, color: css("--text-secondary") },
+    { label: "Zero γ", px: gx.zero_gamma, color: css("--text-muted") },
+    { label: "Call wall", px: c.call_wall, color: css("--series-calls") },
+    { label: "Spot", px: u.spot, color: css("--text-primary") },
+  ].filter(m => m.px != null);
+
+  const all = marks.map(m => m.px).concat([u.spot - c.exp_move, u.spot + c.exp_move, u.pdh, u.pdl]);
+  const lo = Math.min(...all), hi = Math.max(...all);
+  const pad = (hi - lo) * 0.12 || 1;
+  const X = px => ((px - (lo - pad)) / ((hi + pad) - (lo - pad))) * iw;
+
+  // lay labels out first so the card is exactly as tall as it needs to be
+  marks.forEach(m => { m.x = X(m.px); m.text = `${m.label} ${fmtLvl(m.px)}`; });
+  const nRows = assignRows(marks);
+  const ROW_H = 17;
+  const top = 16 + nRows * ROW_H;
+  const H = top + M.b;
+
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}` }, host);
+  const g = el("g", { transform: `translate(${M.l},${top})` }, svg);
+
+  // expected-move band as a recessive wash behind the axis
+  el("rect", { x: X(u.spot - c.exp_move), y: -11, width: X(u.spot + c.exp_move) - X(u.spot - c.exp_move),
+               height: 22, fill: css("--pos"), opacity: 0.10, rx: 4 }, g);
+  el("line", { x1: 0, x2: iw, y1: 0, y2: 0, stroke: css("--baseline"), "stroke-width": 1 }, g);
+
+  // prior-day range ticks
+  [["PDL", u.pdl], ["PDH", u.pdh]].forEach(([label, px]) => {
+    el("line", { x1: X(px), x2: X(px), y1: -6, y2: 6, stroke: css("--baseline"), "stroke-width": 1 }, g);
+    el("text", { x: X(px), y: 22, "text-anchor": "middle", class: "tick" }, g).textContent = label;
+  });
+
+  // leader line from each label down to its marker -- never stacked ambiguously
+  marks.forEach(m => {
+    const ly = -10 - (nRows - 1 - m.row) * ROW_H;
+    el("line", { x1: m.x, x2: m.x, y1: -7, y2: ly + 4, stroke: m.color, "stroke-width": 1, opacity: .55 }, g);
+    el("circle", { cx: m.x, cy: 0, r: 4.5, fill: m.color, stroke: css("--surface-1"), "stroke-width": 2 }, g);
+    el("text", { x: m.x, y: ly, "text-anchor": "middle", class: "marklabel" }, g).textContent = m.text;
+  });
+}
+
+/* ================= page ================= */
+function render() {
+  if (!REPORT) return;
+  const u = REPORT.underlying, c = REPORT.chain, gx = REPORT.gex, s = REPORT.spx;
+  const d = windowed();
+  const ivGap = Math.abs(c.atm_iv * 100 - u.vix);
+  const ivState = ivGap <= 5 ? ["good", "in line"] : ["critical", "divergent"];
+  const longGamma = gx.net >= 0;
+
+  $("#asOf").textContent = `${REPORT.ticker} chain · ${REPORT.expiry} · as of ${REPORT.as_of.replace("T", " ")}`;
+
+  $("#content").innerHTML = `
+    <div class="hero-card">
+      <div>
+        <div class="hero-label">${REPORT.index} spot</div>
+        <div class="hero-value">${fmtNum(s.spot, 2)}</div>
+        <div class="hero-sub">${REPORT.ticker} ${fmtNum(u.spot, 2)} · ratio ${s.ratio.toFixed(4)}
+          · flat ×10 off by ${signed(s.flat_x10_diff, 1)} pts</div>
+      </div>
+      <div>
+        <div class="hero-label">Gamma regime</div>
+        <div class="chip" style="font-size:19px;margin-top:6px">
+          <span class="dot" style="background:${longGamma ? "var(--pos)" : "var(--neg)"}"></span>
+          ${longGamma ? "Long gamma" : "Short gamma"}
+        </div>
+        <div class="hero-sub">Net GEX $${fmtMoney(gx.net)} · zero γ ${fmtLvl(gx.zero_gamma)}</div>
+      </div>
+    </div>
+
+    <div class="kpis">
+      ${tile("Gap", signed(u.gap_pct) + "%", `open vs prev close ${fmtNum(u.prev_close)}`)}
+      ${tile("RSI(14)", fmtNum(u.rsi, 1), u.rsi >= 70 ? "overbought" : u.rsi <= 30 ? "oversold" : "neutral zone")}
+      ${tile("VWAP", fmtNum(u.vwap), `${signed(u.vwap_vs_spot_pct)}% vs spot`)}
+      ${tile("ATM IV", (c.atm_iv * 100).toFixed(1) + "%",
+        `<span class="chip"><span class="dot" style="background:var(--${ivState[0]})"></span>${ivState[1]} vs VIX ${fmtNum(u.vix, 1)}</span>`)}
+      ${tile("Expected move", "±" + fmtNum(c.exp_move), `${fmtLvl(u.spot - c.exp_move)} – ${fmtLvl(u.spot + c.exp_move)}`)}
+      ${tile("P/C open interest", fmtNum(c.pc_oi, 3), `P/C volume ${fmtNum(c.pc_volume, 3)} — different measures`)}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Key levels</h2>
+          <p class="sub">Positioning levels against the expected-move band and yesterday's range.</p>
+        </div>
+      </div>
+      <div class="chart-host" id="ladderHost"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Net gamma exposure by strike</h2>
+          <p class="sub">Dealer $ gamma per 1% move, ${d.strikes.length} strikes in view.</p>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="swatch" style="background:var(--pos)"></span>Long gamma (+)</span>
+          <span class="item"><span class="swatch" style="background:var(--neg)"></span>Short gamma (−)</span>
+        </div>
+      </div>
+      <div class="chart-host" id="gexHost"></div>
+      ${tableView(d, ["Net GEX", "Call GEX", "Put GEX"],
+        i => [fmtM(d.net_gex[i]), fmtM(d.call_gex[i]), fmtM(d.put_gex[i])])}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h2>Open interest by strike</h2>
+          <p class="sub">Standing contracts — the walls are the largest bars.</p>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="swatch" style="background:var(--series-calls)"></span>Calls</span>
+          <span class="item"><span class="swatch" style="background:var(--series-puts)"></span>Puts</span>
+        </div>
+      </div>
+      <div class="chart-host" id="oiHost"></div>
+      ${tableView(d, ["Call OI", "Put OI"],
+        i => [d.call_oi[i].toLocaleString(), d.put_oi[i].toLocaleString()])}
+    </div>`;
+
+  $("#content").hidden = false;
+  chartLadder($("#ladderHost"));
+  chartGex($("#gexHost"), d);
+  chartOi($("#oiHost"), d);
+}
+
+const tile = (k, v, d) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+
+function tableView(d, cols, rowFn) {
+  const rows = d.strikes.map((s, i) =>
+    `<tr><td>${fmtLvl(s)}</td>${rowFn(i).map(c => `<td>${c}</td>`).join("")}</tr>`).join("");
+  return `<details class="tableview"><summary>Table view (${d.strikes.length} strikes)</summary>
+    <div class="table-wrap"><table><thead><tr><th>Strike</th>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead>
+    <tbody>${rows}</tbody></table></div></details>`;
+}
+
+/* ---------- data ---------- */
+async function loadExpiries() {
+  try {
+    const r = await fetch(`/api/expiries?ticker=${encodeURIComponent($("#ticker").value)}`);
+    const j = await r.json();
+    if (!j.expiries) return;
+    const cur = $("#expiry").value;
+    $("#expiry").innerHTML = `<option value="">nearest</option>` +
+      j.expiries.map(e => `<option value="${e}">${e}</option>`).join("");
+    if (j.expiries.includes(cur)) $("#expiry").value = cur;
+  } catch (_) { /* the report call surfaces the error */ }
+}
+
+async function load() {
+  $("#err").hidden = true;
+  $("#content").classList.add("loading");
+  if (!REPORT) $("#loading").hidden = false;
+  const q = new URLSearchParams({
+    ticker: $("#ticker").value, index: $("#index").value, expiry: $("#expiry").value
+  });
+  try {
+    const r = await fetch("/api/report?" + q);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    REPORT = j;
+    render();
+  } catch (e) {
+    $("#err").textContent = `Could not load data: ${e.message}. ` +
+      `Yahoo Finance must be reachable from this machine.`;
+    $("#err").hidden = false;
+  } finally {
+    $("#loading").hidden = true;
+    $("#content").classList.remove("loading");
+  }
+}
+
+let timer = null;
+function arm() {
+  clearInterval(timer);
+  const s = parseInt($("#auto").value, 10);
+  if (s > 0) timer = setInterval(load, s * 1000);
+}
+
+$("#refresh").onclick = load;
+$("#auto").onchange = arm;
+$("#expiry").onchange = load;
+["#ticker", "#index"].forEach(s => $(s).onchange = () => { loadExpiries(); load(); });
+["#window", "#units"].forEach(s => $(s).onchange = render);
+addEventListener("resize", () => { clearTimeout(window._rz); window._rz = setTimeout(render, 150); });
+
+loadExpiries();
+load();
+arm();
+</script>
+</body>
+</html>

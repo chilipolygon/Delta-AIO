@@ -1,21 +1,35 @@
 # Delta-AIO
 
-## spx_dashboard.py
+SPX options / gamma dashboard sourced from Yahoo Finance — available as a
+localhost web app (`app.py`) or a terminal report (`spx_dashboard.py`). Both
+share the same analytics in `spx_dashboard.build_report()`.
 
-SPX options / gamma dashboard sourced from Yahoo Finance.
+## Web dashboard
+
+```
+pip install -r requirements.txt
+python3 app.py            # -> http://127.0.0.1:5000
+python3 app.py --port 8080
+```
+
+The page shows the index spot as the headline figure, a KPI row (gap, RSI, VWAP,
+ATM IV vs VIX, expected move, P/C open interest), a key-levels ladder plotting
+the walls, max pain and zero gamma against the expected-move band and yesterday's
+range, plus two per-strike charts: net gamma exposure (blue where dealers are long
+gamma, red where short) and open interest (calls vs puts). Every chart has a hover
+tooltip and a table view.
+
+Controls sit in one row above the charts: chain source, index, expiry, strike
+window, whether levels are quoted in SPX points or underlying dollars, and an
+auto-refresh interval. Results are cached for 60 seconds so a page refresh does
+not re-hit Yahoo. Light and dark themes both ship; the toggle is top-right.
+
+## Terminal report
 
 Yahoo does not publish an options chain for the `^SPX` / `^GSPC` index itself, so
 the script pulls the **SPY** chain, computes everything from it, and converts the
 dollar levels into SPX-equivalent terms using the live SPX/SPY ratio. The ratio
 drifts away from a flat x10 (dividends, tracking), which the output makes explicit.
-
-### Install
-
-```
-pip install -r requirements.txt
-```
-
-### Run
 
 ```
 python3 spx_dashboard.py                      # nearest expiry

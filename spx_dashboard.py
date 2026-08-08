@@ -140,23 +140,30 @@ def compute_max_pain(calls: pd.DataFrame, puts: pd.DataFrame):
     return float(strikes[idx])
 
 
-def compute_gex(calls: pd.DataFrame, puts: pd.DataFrame, spot: float, t_years: float):
-    """Dollar gamma exposure per 1% move in the underlying, in $."""
-    call_gamma = bs_gamma(spot, calls["strike"].to_numpy(), calls["impliedVolatility"].to_numpy(), t_years)
-    put_gamma = bs_gamma(spot, puts["strike"].to_numpy(), puts["impliedVolatility"].to_numpy(), t_years)
+def gex_by_strike(calls: pd.DataFrame, puts: pd.DataFrame, spot: float, t_years: float):
+    """Per-strike dollar gamma exposure per 1% move, in $.
 
-    call_oi = calls["openInterest"].fillna(0).to_numpy()
-    put_oi = puts["openInterest"].fillna(0).to_numpy()
-
+    Returns (strikes, call_gex_series, put_gex_series) aligned on the union of
+    strikes. Convention: dealers assumed long calls / short puts against customer
+    flow, so put gamma exposure is booked as negative.
+    """
+    strikes = np.array(sorted(set(calls["strike"]).union(set(puts["strike"]))))
     contract_mult = 100
     scale = spot ** 2 * 0.01  # dollar change per 1% move
 
-    call_gex = float((call_gamma * call_oi * contract_mult * scale).sum())
-    # Convention: dealers assumed long calls / short puts against customer flow,
-    # so put gamma exposure is booked as negative.
-    put_gex = -float((put_gamma * put_oi * contract_mult * scale).sum())
+    def leg(df, sign):
+        oi = df.set_index("strike")["openInterest"].reindex(strikes).fillna(0).to_numpy()
+        iv = df.set_index("strike")["impliedVolatility"].reindex(strikes).to_numpy()
+        gamma = bs_gamma(spot, strikes, iv, t_years)
+        return sign * gamma * oi * contract_mult * scale
 
-    return call_gex, put_gex
+    return strikes, leg(calls, 1.0), leg(puts, -1.0)
+
+
+def compute_gex(calls: pd.DataFrame, puts: pd.DataFrame, spot: float, t_years: float):
+    """Aggregate dollar gamma exposure per 1% move in the underlying, in $."""
+    _, call_leg, put_leg = gex_by_strike(calls, puts, spot, t_years)
+    return float(call_leg.sum()), float(put_leg.sum())
 
 
 def net_gex_at_spot(calls: pd.DataFrame, puts: pd.DataFrame, hypothetical_spot: float, t_years: float) -> float:
@@ -196,62 +203,121 @@ def mid_price(row: pd.Series) -> float:
 
 
 # --------------------------------------------------------------------------
-# Report
+# Report builder -- shared by the CLI and the web dashboard
 # --------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description="SPX options/gamma dashboard via Yahoo Finance (SPY proxy).")
-    parser.add_argument("--ticker", default="SPY", help="Underlying ETF with a liquid options chain (default: SPY)")
-    parser.add_argument("--index", default="^GSPC", help="Cash index ticker used for the SPX ratio (default: ^GSPC)")
-    parser.add_argument("--expiry", default=None, help="Expiry date YYYY-MM-DD (default: nearest available)")
-    args = parser.parse_args()
+def build_report(ticker: str = "SPY", index: str = "^GSPC", expiry: str | None = None) -> dict:
+    """Fetch everything and return a plain JSON-serializable dict of results."""
+    ticker = ticker.upper()
 
-    ticker = args.ticker.upper()
-
-    print(f"Fetching {ticker} data from Yahoo Finance...", file=sys.stderr)
     levels = fetch_daily_levels(ticker)
     spot, prev_close = levels["spot"], levels["prev_close"]
     rsi = fetch_rsi(ticker)
     vwap = fetch_vwap(ticker)
-    spx_spot = fetch_last_close(args.index)
+    spx_spot = fetch_last_close(index)
     ratio = spx_spot / spot
     vix = fetch_last_close("^VIX")
 
     t = yf.Ticker(ticker)
-    expiry = pick_expiry(t, args.expiry)
+    expiry = pick_expiry(t, expiry)
     chain = t.option_chain(expiry)
     calls, puts = chain.calls.copy(), chain.puts.copy()
-    calls["openInterest"] = calls["openInterest"].fillna(0)
-    puts["openInterest"] = puts["openInterest"].fillna(0)
-    calls["volume"] = calls["volume"].fillna(0)
-    puts["volume"] = puts["volume"].fillna(0)
+    for df in (calls, puts):
+        df["openInterest"] = df["openInterest"].fillna(0)
+        df["volume"] = df["volume"].fillna(0)
 
     t_years = years_to_expiry(expiry)
 
     call_vol, put_vol = calls["volume"].sum(), puts["volume"].sum()
-    call_oi, put_oi = calls["openInterest"].sum(), puts["openInterest"].sum()
-    pc_volume = put_vol / call_vol if call_vol else float("nan")
-    pc_oi = put_oi / call_oi if call_oi else float("nan")
+    call_oi_total, put_oi_total = calls["openInterest"].sum(), puts["openInterest"].sum()
 
     max_pain = compute_max_pain(calls, puts)
-
     call_wall = float(calls.loc[calls["openInterest"].idxmax(), "strike"]) if not calls.empty else float("nan")
     put_wall = float(puts.loc[puts["openInterest"].idxmax(), "strike"]) if not puts.empty else float("nan")
 
     strike_atm = atm_strike(calls, puts, spot)
     call_row = calls.loc[(calls["strike"] - strike_atm).abs().idxmin()]
     put_row = puts.loc[(puts["strike"] - strike_atm).abs().idxmin()]
-    atm_iv = np.nanmean([call_row.get("impliedVolatility", np.nan), put_row.get("impliedVolatility", np.nan)])
+    atm_iv = float(np.nanmean([call_row.get("impliedVolatility", np.nan),
+                               put_row.get("impliedVolatility", np.nan)]))
     exp_move = mid_price(call_row) + mid_price(put_row)
 
-    call_gex, put_gex = compute_gex(calls, puts, spot, t_years)
+    strikes, call_leg, put_leg = gex_by_strike(calls, puts, spot, t_years)
+    call_gex, put_gex = float(call_leg.sum()), float(put_leg.sum())
     net_gex = call_gex + put_gex
-    gross_gex = call_gex + abs(put_gex)
     zero_gamma = compute_zero_gamma(calls, puts, spot, t_years)
 
-    gap_pct = (levels["open"] - prev_close) / prev_close * 100
-    vwap_vs_spot_pct = (spot - vwap) / vwap * 100
-    flat_x10_diff = spx_spot - spot * 10
+    call_oi_s = calls.set_index("strike")["openInterest"].reindex(strikes).fillna(0)
+    put_oi_s = puts.set_index("strike")["openInterest"].reindex(strikes).fillna(0)
+
+    def nan_to_none(x):
+        x = float(x)
+        return None if np.isnan(x) else x
+
+    return {
+        "ticker": ticker,
+        "index": index,
+        "expiry": expiry,
+        "as_of": datetime.now(tz=NY_TZ).isoformat(timespec="seconds"),
+        "t_years": t_years,
+        "underlying": {
+            "spot": spot,
+            "prev_close": prev_close,
+            "open": levels["open"],
+            "pdh": levels["pdh"],
+            "pdl": levels["pdl"],
+            "gap_pct": (levels["open"] - prev_close) / prev_close * 100,
+            "rsi": rsi,
+            "vwap": vwap,
+            "vwap_vs_spot_pct": (spot - vwap) / vwap * 100,
+            "vix": vix,
+        },
+        "spx": {
+            "spot": spx_spot,
+            "ratio": ratio,
+            "flat_x10_diff": spx_spot - spot * 10,
+        },
+        "chain": {
+            "n_calls": int(len(calls)),
+            "n_puts": int(len(puts)),
+            "call_volume": float(call_vol),
+            "put_volume": float(put_vol),
+            "call_oi": float(call_oi_total),
+            "put_oi": float(put_oi_total),
+            "pc_volume": float(put_vol / call_vol) if call_vol else None,
+            "pc_oi": float(put_oi_total / call_oi_total) if call_oi_total else None,
+            "max_pain": max_pain,
+            "call_wall": call_wall,
+            "put_wall": put_wall,
+            "exp_move": exp_move,
+            "atm_strike": strike_atm,
+            "atm_iv": atm_iv,
+        },
+        "gex": {
+            "call": call_gex,
+            "put": put_gex,
+            "net": net_gex,
+            "gross": call_gex + abs(put_gex),
+            "zero_gamma": nan_to_none(zero_gamma),
+        },
+        "by_strike": {
+            "strikes": [float(s) for s in strikes],
+            "call_gex": [float(v) for v in call_leg],
+            "put_gex": [float(v) for v in put_leg],
+            "net_gex": [float(v) for v in (call_leg + put_leg)],
+            "call_oi": [float(v) for v in call_oi_s],
+            "put_oi": [float(v) for v in put_oi_s],
+        },
+    }
+
+
+def print_report(r: dict) -> None:
+    ticker = r["ticker"]
+    u, s, c, g = r["underlying"], r["spx"], r["chain"], r["gex"]
+    spot, ratio = u["spot"], s["ratio"]
+    atm_iv, vix = c["atm_iv"], u["vix"]
+    zero_gamma = g["zero_gamma"]
+    exp_move = c["exp_move"]
     iv_vs_vix = "OK" if abs(atm_iv * 100 - vix) <= 5 else "DIVERGENT"
 
     def to_spx(px):
@@ -260,42 +326,49 @@ def main():
     print()
     print(f"=== {ticker} ===")
     print(f"    Spot            {spot:.2f}")
-    print(f"    Prev close      {prev_close:.2f}    PDH {levels['pdh']:.2f} / PDL {levels['pdl']:.2f}")
-    print(f"    Gap             {gap_pct:+.2f}%")
-    print(f"    RSI(14)         {rsi:.1f}")
-    print(f"    VWAP            {vwap:.2f}  ({vwap_vs_spot_pct:+.2f}% vs spot)")
-    print(f"    SPX ratio       {ratio:.4f}  (flat x10 is off by {flat_x10_diff:+.1f} pts)")
+    print(f"    Prev close      {u['prev_close']:.2f}    PDH {u['pdh']:.2f} / PDL {u['pdl']:.2f}")
+    print(f"    Gap             {u['gap_pct']:+.2f}%")
+    print(f"    RSI(14)         {u['rsi']:.1f}")
+    print(f"    VWAP            {u['vwap']:.2f}  ({u['vwap_vs_spot_pct']:+.2f}% vs spot)")
+    print(f"    SPX ratio       {ratio:.4f}  (flat x10 is off by {s['flat_x10_diff']:+.1f} pts)")
     print()
-    print(f"=== CHAIN {expiry} ===")
-    print(f"    {len(calls)} calls / {len(puts)} puts")
-    print(f"    P/C volume      {pc_volume:.3f}")
-    print(f"    P/C OI          {pc_oi:.3f}   <- these measure different things")
-    print(f"    Max pain        ${max_pain:.0f}  ({(max_pain - spot) / spot * 100:+.2f}% from spot)")
-    print(f"    Call wall       ${call_wall:.0f}")
-    print(f"    Put wall        ${put_wall:.0f}")
+    print(f"=== CHAIN {r['expiry']} ===")
+    print(f"    {c['n_calls']} calls / {c['n_puts']} puts")
+    print(f"    P/C volume      {c['pc_volume']:.3f}")
+    print(f"    P/C OI          {c['pc_oi']:.3f}   <- these measure different things")
+    print(f"    Max pain        ${c['max_pain']:.0f}  ({(c['max_pain'] - spot) / spot * 100:+.2f}% from spot)")
+    print(f"    Call wall       ${c['call_wall']:.0f}")
+    print(f"    Put wall        ${c['put_wall']:.0f}")
     print(f"    Exp move        +/-${exp_move:.2f}  (${spot - exp_move:.2f} - ${spot + exp_move:.2f})")
     print()
     print(f"    ATM IV          {atm_iv * 100:.1f}%  vs VIX {vix:.1f}   [{iv_vs_vix}]")
-    print(f"    Call GEX        ${call_gex / 1e6:+.1f}M")
-    print(f"    Put GEX         ${put_gex / 1e6:+.1f}M")
-    print(f"    Net GEX         ${net_gex / 1e6:+.1f}M  ({'long' if net_gex >= 0 else 'short'} gamma)")
-    print(f"    Gross GEX       ${gross_gex / 1e6:.1f}M  <- not the same as net")
-    zg_str = f"${zero_gamma:.2f}" if not np.isnan(zero_gamma) else "n/a (no sign change in scanned range)"
+    print(f"    Call GEX        ${g['call'] / 1e6:+.1f}M")
+    print(f"    Put GEX         ${g['put'] / 1e6:+.1f}M")
+    print(f"    Net GEX         ${g['net'] / 1e6:+.1f}M  ({'long' if g['net'] >= 0 else 'short'} gamma)")
+    print(f"    Gross GEX       ${g['gross'] / 1e6:.1f}M  <- not the same as net")
+    zg_str = f"${zero_gamma:.2f}" if zero_gamma is not None else "n/a (no sign change in scanned range)"
     print(f"    Zero gamma      {zg_str}")
     print()
     print(f"=== SPX EQUIVALENTS (ratio {ratio:.4f}) ===")
-    for label, px in [
-        ("spot", spot),
-        ("max pain", max_pain),
-        ("call wall", call_wall),
-        ("put wall", put_wall),
-    ]:
+    rows = [("spot", spot), ("max pain", c["max_pain"]),
+            ("call wall", c["call_wall"]), ("put wall", c["put_wall"])]
+    if zero_gamma is not None:
+        rows.append(("zero gamma", zero_gamma))
+    for label, px in rows:
         spx_val, x10_val = to_spx(px)
         print(f"    {label:<10} ${px:>8.2f} -> {spx_val:>9,.1f}  (x10: {x10_val:>9,.1f})")
-    if not np.isnan(zero_gamma):
-        spx_val, x10_val = to_spx(zero_gamma)
-        print(f"    {'zero gamma':<10} ${zero_gamma:>8.2f} -> {spx_val:>9,.1f}  (x10: {x10_val:>9,.1f})")
     print()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="SPX options/gamma dashboard via Yahoo Finance (SPY proxy).")
+    parser.add_argument("--ticker", default="SPY", help="Underlying ETF with a liquid options chain (default: SPY)")
+    parser.add_argument("--index", default="^GSPC", help="Cash index ticker used for the SPX ratio (default: ^GSPC)")
+    parser.add_argument("--expiry", default=None, help="Expiry date YYYY-MM-DD (default: nearest available)")
+    args = parser.parse_args()
+
+    print(f"Fetching {args.ticker.upper()} data from Yahoo Finance...", file=sys.stderr)
+    print_report(build_report(args.ticker, args.index, args.expiry))
 
 
 if __name__ == "__main__":

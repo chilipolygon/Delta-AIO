@@ -21,11 +21,13 @@ import yfinance as yf
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
+from scanner import SCANS, load_universe, scan_universe
 from spx_dashboard import build_report
 
 app = Flask(__name__)
 
 CACHE_TTL_SECONDS = 60
+SCAN_TTL_SECONDS = 900  # a full-universe scan is expensive; 15 minutes is plenty
 _cache: dict[tuple, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 
@@ -78,6 +80,30 @@ def cached_report(ticker: str, index: str, expiry: str | None) -> dict:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/scanner")
+def scanner_page():
+    # the live page fetches /api/scan; only the static export bakes data in
+    return render_template("scanner.html", embedded="null")
+
+
+@app.route("/api/scan")
+def api_scan():
+    types = [t for t in request.args.get("types", "ote,ma,breakout").split(",") if t in SCANS]
+    limit = min(max(request.args.get("limit", 60, type=int), 1), 300)
+    key = ("scan", tuple(types), limit)
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < SCAN_TTL_SECONDS:
+            return jsonify(hit[1])
+
+    result = json_safe(scan_universe(load_universe(), types, limit=limit))
+
+    with _cache_lock:
+        _cache[key] = (time.time(), result)
+    return jsonify(result)
 
 
 @app.route("/api/expiries")

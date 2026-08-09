@@ -162,6 +162,9 @@
 
   .caveat { font-size: 12px; color: var(--text-muted); margin-top: 12px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .nav { font-size: 13px; color: var(--text-secondary); text-decoration: none;
+         border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; }
+  .nav:hover { border-color: var(--baseline); }
 </style>
 </head>
 <body>
@@ -171,6 +174,7 @@
     <h1>SPX gamma dashboard</h1>
     <span class="as-of" id="asOf"></span>
     <span class="spacer" style="flex:1"></span>
+    <a class="nav" href="/scanner">Setup scanner →</a>
     <button id="themeBtn" type="button">Theme</button>
   </header>
 

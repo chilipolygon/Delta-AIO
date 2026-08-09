@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup scanner — NDX + SPX</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:#f9f9f7; --surface-1:#fcfcfb; --surface-2:#f4f3f0;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
+    --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --puts:#eb6834;
+    --st-zone:#2a78d6;  --st-zone-t:#1c5cab;
+    --st-target:#0ca30c;--st-target-t:#006300;
+    --st-wait:#fab219;  --st-wait-t:#8a5a00;
+    --st-chase:#ec835a; --st-chase-t:#a33f14;
+    --st-dead:#d03b3b;  --st-dead-t:#a82a2a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#212120;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5; --puts:#d95926;
+      --st-zone:#3987e5;  --st-zone-t:#3987e5;
+      --st-target:#0ca30c;--st-target-t:#0ca30c;
+      --st-wait:#fab219;  --st-wait-t:#fab219;
+      --st-chase:#ec835a; --st-chase-t:#ec835a;
+      --st-dead:#d03b3b;  --st-dead-t:#e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#212120;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.10);
+    --accent:#3987e5; --puts:#d95926;
+    --st-zone:#3987e5;  --st-zone-t:#3987e5;
+    --st-target:#0ca30c;--st-target-t:#0ca30c;
+    --st-wait:#fab219;  --st-wait-t:#fab219;
+    --st-chase:#ec835a; --st-chase-t:#ec835a;
+    --st-dead:#d03b3b;  --st-dead-t:#e66767;
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text-primary);
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1720px; margin:0 auto; padding:20px 18px 60px; }
+
+  header.top { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  header.top h1 { font-size:17px; font-weight:600; margin:0; }
+  .muted { color:var(--text-muted); font-size:13px; }
+  .grow { flex:1; }
+
+  .summary { font-size:13px; color:var(--text-secondary); margin:10px 0 0;
+             padding:11px 14px; background:var(--surface-1);
+             border:1px solid var(--border); border-radius:9px; }
+  .summary b { color:var(--text-primary); font-variant-numeric:tabular-nums; }
+  .up { color:var(--st-target-t); font-weight:600; }
+  .down { color:var(--st-dead-t); font-weight:600; }
+
+  .filters { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;
+             padding:12px 14px; margin:12px 0 18px; background:var(--surface-1);
+             border:1px solid var(--border); border-radius:9px; }
+  .field { display:flex; flex-direction:column; gap:4px; }
+  .field label { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+  select, button, input { font:inherit; color:var(--text-primary); background:var(--page);
+                          border:1px solid var(--border); border-radius:7px; padding:6px 9px; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--baseline); }
+
+  .banner { padding:11px 14px; border-radius:9px; margin-bottom:16px; font-size:13px;
+            background:var(--surface-1); border:1px solid var(--border); color:var(--text-secondary); }
+  .banner.error { border-left:3px solid var(--st-dead); }
+  .banner[hidden] { display:none; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(288px,1fr)); gap:14px; }
+
+  .card { background:var(--surface-1); border:1px solid var(--border);
+          border-radius:11px; padding:14px 15px 10px; }
+  .card.dead { border-color:var(--st-dead); }
+  .chead { display:flex; align-items:baseline; gap:7px; }
+  .tk { font-size:20px; font-weight:700; letter-spacing:-.01em; }
+  .nm { font-size:11.5px; color:var(--text-muted); overflow:hidden;
+        text-overflow:ellipsis; white-space:nowrap; }
+  .px { margin-left:auto; font-size:19px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .fromrow { display:flex; justify-content:space-between; align-items:center; gap:8px;
+             font-size:11.5px; color:var(--text-muted); margin-top:1px; }
+  .fromrow .pct { font-variant-numeric:tabular-nums; }
+
+  .tag { font-size:9.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
+         padding:2px 6px; border-radius:5px; background:var(--surface-2);
+         color:var(--text-secondary); border:1px solid var(--border); }
+
+  .headline { font-size:14px; font-weight:700; letter-spacing:.01em; margin-top:11px;
+              display:flex; align-items:center; gap:7px; }
+  .headline .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .note { font-size:11.5px; color:var(--text-secondary); margin-top:5px; min-height:31px; }
+  .metrics { font-size:10.5px; color:var(--text-muted); margin-top:7px; font-variant-numeric:tabular-nums; }
+
+  .volrow { display:flex; align-items:center; gap:8px; margin-top:9px;
+            font-size:10.5px; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+
+  .s-zone   .dot{background:var(--st-zone)}   .s-zone   .htxt{color:var(--st-zone-t)}
+  .s-target .dot{background:var(--st-target)} .s-target .htxt{color:var(--st-target-t)}
+  .s-wait   .dot{background:var(--st-wait)}   .s-wait   .htxt{color:var(--st-wait-t)}
+  .s-chase  .dot{background:var(--st-chase)}  .s-chase  .htxt{color:var(--st-chase-t)}
+  .s-dead   .dot{background:var(--st-dead)}   .s-dead   .htxt{color:var(--st-dead-t)}
+  /* coiling shares the entry-zone hue but carries a hollow dot, so the two
+     never rely on colour alone to be told apart */
+  .s-coil   .dot{background:transparent; box-shadow:inset 0 0 0 2px var(--st-zone)}
+  .s-coil   .htxt{color:var(--st-zone-t)}
+  .s-below  .dot{background:var(--text-muted)} .s-below .htxt{color:var(--text-secondary)}
+
+  svg { display:block; }
+  svg text { font:9.5px system-ui,-apple-system,"Segoe UI",sans-serif; }
+
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th,td { text-align:right; padding:6px 9px; border-bottom:1px solid var(--grid);
+          font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; }
+  th { color:var(--text-muted); text-transform:uppercase; font-size:10px; letter-spacing:.04em; }
+  details.tv { margin-top:18px; border-top:1px solid var(--grid); padding-top:12px; }
+  details.tv summary { cursor:pointer; font-size:12.5px; color:var(--text-secondary); }
+  .tv-wrap { max-height:460px; overflow:auto; margin-top:8px; }
+
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-secondary); }
+  .legend .item { display:inline-flex; align-items:center; gap:5px; }
+  .legend .sw { width:10px; height:10px; border-radius:3px; flex:none; }
+  .caveat { font-size:11.5px; color:var(--text-muted); margin-top:22px; }
+  .nav { font-size:12.5px; color:var(--text-secondary); text-decoration:none;
+         border:1px solid var(--border); border-radius:7px; padding:6px 9px; }
+  .nav:hover { border-color:var(--baseline); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>Setup scanner</h1>
+    <span class="muted" id="scanMeta"></span>
+    <span class="grow"></span>
+    <a class="nav" id="navHome" href="/">Gamma dashboard →</a>
+    <button id="themeBtn" type="button">Theme</button>
+  </header>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="filters">
+    <div class="field">
+      <label for="fType">Setup</label>
+      <select id="fType">
+        <option value="">all rules</option>
+        <option value="ote">OTE pullback</option>
+        <option value="ma">MA pullback</option>
+        <option value="breakout">Squeeze breakout</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fStatus">Status</label>
+      <select id="fStatus">
+        <option value="">all</option>
+        <option value="IN ENTRY ZONE">in entry zone</option>
+        <option value="COILING">coiling</option>
+        <option value="WAIT FOR PULLBACK">wait for pullback</option>
+        <option value="TARGET HIT">target hit</option>
+        <option value="BELOW ZONE">below zone</option>
+        <option value="DON'T CHASE">don't chase</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fSort">Sort</label>
+      <select id="fSort">
+        <option value="rank">most actionable</option>
+        <option value="rr">best R:R at entry</option>
+        <option value="near">closest to entry</option>
+        <option value="from">% from entry</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fMinRR">Min R:R at entry</label>
+      <input id="fMinRR" type="number" step="0.5" value="0" style="width:78px">
+    </div>
+    <div class="field">
+      <label for="fDedupe">Per ticker</label>
+      <select id="fDedupe">
+        <option value="1">best setup only</option>
+        <option value="0">every rule that fired</option>
+      </select>
+    </div>
+    <span class="grow"></span>
+    <div class="field" id="liveOnly">
+      <label for="fLimit">Scan</label>
+      <button id="rescan" type="button">Re-run scan</button>
+    </div>
+  </div>
+
+  <div class="legend" style="margin-bottom:14px">
+    <span class="item"><span class="sw" style="background:var(--st-zone)"></span>In entry zone</span>
+    <span class="item"><span class="sw" style="box-shadow:inset 0 0 0 2px var(--st-zone)"></span>Coiling</span>
+    <span class="item"><span class="sw" style="background:var(--st-wait)"></span>Wait for pullback</span>
+    <span class="item"><span class="sw" style="background:var(--st-target)"></span>Target hit</span>
+    <span class="item"><span class="sw" style="background:var(--st-chase)"></span>Don't chase</span>
+    <span class="item"><span class="sw" style="background:var(--text-muted)"></span>Below zone</span>
+  </div>
+
+  <div class="banner error" id="err" hidden></div>
+  <div class="banner" id="loading">Scanning…</div>
+
+  <div class="grid" id="grid"></div>
+
+  <details class="tv" id="tvBox"><summary>Table view — every number on the cards</summary>
+    <div class="tv-wrap"><table id="tv"></table></div>
+  </details>
+
+  <p class="caveat">
+    Entries, stops and targets are <em>derived by the scan rules</em>, not hand-picked: OTE uses the
+    0.62–0.79 retracement of the last impulse leg, MA uses the rising 21 EMA, breakout uses the
+    20-bar range high. Levels are daily-bar approximations and say nothing about whether a trade is
+    a good idea. Invalidated setups are dropped rather than shown.
+  </p>
+</div>
+
+<script id="embedded" type="application/json">{{ embedded | safe }}</script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+let DATA = null;
+
+const root = document.documentElement;
+if (localStorage.getItem("theme")) root.dataset.theme = localStorage.getItem("theme");
+$("#themeBtn").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = root.dataset.theme || (dark ? "dark" : "light");
+  root.dataset.theme = cur === "dark" ? "light" : "dark";
+  localStorage.setItem("theme", root.dataset.theme);
+  draw();
+};
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+
+const STATUS_CLASS = {
+  "IN ENTRY ZONE": "s-zone", "COILING": "s-coil", "WAIT FOR PULLBACK": "s-wait",
+  "TARGET HIT": "s-target", "BELOW ZONE": "s-below", "DON'T CHASE": "s-chase",
+  "INVALIDATED": "s-dead",
+};
+const TYPE_LABEL = { ote: "OTE", ma: "21 EMA", breakout: "squeeze" };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const n2 = v => (v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const sgn = v => (v >= 0 ? "+" : "") + Number(v).toFixed(2);
+
+/* 20-bar volume sparkline: recessive bars, current bar in the accent */
+function sparkline(bars) {
+  const W = 62, H = 15, n = bars.length, bw = W / n;
+  const r = bars.map((v, i) => {
+    const h = Math.max(1, v * H), y = H - h;
+    const fill = i === n - 1 ? css("--accent") : css("--baseline");
+    return `<rect x="${(i * bw).toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(1, bw - 1).toFixed(2)}" height="${h.toFixed(2)}" fill="${fill}" rx="0.5"/>`;
+  }).join("");
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${r}</svg>`;
+}
+
+/* price ladder: stop · entry band · targets, with the live price marked */
+function ladder(s) {
+  const W = 260, H = 42, PAD = 10, yb = 30;
+  const pts = [s.stop, s.entry_lo, s.entry_hi, s.price, ...s.targets];
+  let lo = Math.min(...pts), hi = Math.max(...pts);
+  const span = (hi - lo) || 1;
+  lo -= span * 0.06; hi += span * 0.06;
+  const X = v => PAD + ((v - lo) / (hi - lo)) * (W - PAD * 2);
+  const tick = (v, color, w = 2) =>
+    `<rect x="${(X(v) - w / 2).toFixed(2)}" y="${yb - 6}" width="${w}" height="12" rx="1" fill="${color}"/>`;
+
+  let out = `<line x1="${PAD}" y1="${yb}" x2="${W - PAD}" y2="${yb}" stroke="${css("--baseline")}" stroke-width="1"/>`;
+  // entry band drawn first so ticks sit on top of it
+  out += `<rect x="${X(s.entry_lo).toFixed(2)}" y="${yb - 4}" width="${Math.max(2, X(s.entry_hi) - X(s.entry_lo)).toFixed(2)}" height="8" rx="2" fill="${css("--st-wait")}" opacity="0.35"/>`;
+  out += tick(s.stop, css("--st-dead"));
+  out += tick(s.entry, css("--st-wait"), 2.5);
+  s.targets.forEach(t => { out += tick(t, css("--st-target")); });
+
+  const px = X(s.price);
+  out += `<path d="M${px.toFixed(2)},${yb - 8} l-4.5,-6 l9,0 z" fill="${css("--text-primary")}"/>`;
+  const anchor = px < 34 ? "start" : px > W - 34 ? "end" : "middle";
+  const tx = anchor === "start" ? PAD : anchor === "end" ? W - PAD : px;
+  out += `<text x="${tx.toFixed(2)}" y="${yb - 17}" text-anchor="${anchor}" fill="${css("--text-primary")}" font-weight="700">${n2(s.price)}</text>`;
+  out += `<text x="${PAD}" y="${H - 1}" fill="${css("--text-muted")}">${n2(s.stop)}</text>`;
+  out += `<text x="${W - PAD}" y="${H - 1}" text-anchor="end" fill="${css("--text-muted")}">${n2(s.targets[s.targets.length - 1])}</text>`;
+  return `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="price ladder">${out}</svg>`;
+}
+
+function card(s) {
+  const cls = STATUS_CLASS[s.status] || "";
+  const t1 = s.targets[0];
+  return `<article class="card ${cls} ${s.status === "INVALIDATED" ? "dead" : ""}">
+    <div class="chead"><span class="tk">${esc(s.ticker)}</span>
+      <span class="nm">${esc(s.name)}</span><span class="px">${n2(s.price)}</span></div>
+    <div class="fromrow"><span class="tag">${TYPE_LABEL[s.setup_type] || s.setup_type}</span>
+      <span class="pct">${sgn(s.pct_from_entry)}% from entry</span></div>
+    <div class="headline"><span class="dot"></span><span class="htxt">${esc(s.headline)}</span></div>
+    <div class="note">${esc(s.note)}</div>
+    <div class="metrics">risk ${s.risk_pct.toFixed(1)}% · reward to ${s.next_target_label} ${s.reward_pct.toFixed(1)}%
+      · R:R ${s.rr.toFixed(1)}:1</div>
+    <div class="metrics">at entry ${n2(s.entry)} · risk ${s.entry_risk_pct.toFixed(1)}% · R:R ${s.entry_rr.toFixed(1)}:1 · score ${s.score}</div>
+    <div class="volrow">${sparkline(s.vol_bars)}<span>${s.vol_ratio.toFixed(2)}× vol ${esc(s.vol_trend)}</span></div>
+    ${ladder(s)}
+  </article>`;
+}
+
+function visible() {
+  const ty = $("#fType").value, st = $("#fStatus").value;
+  const minRR = parseFloat($("#fMinRR").value) || 0;
+  let rows = DATA.setups.filter(s =>
+    (!ty || s.setup_type === ty) && (!st || s.status === st) && s.entry_rr >= minRR);
+  if ($("#fDedupe").value === "1") {           // keep the best-scoring rule per ticker
+    const best = new Map();
+    for (const s of rows) {
+      const cur = best.get(s.ticker);
+      if (!cur || s.score > cur.score) best.set(s.ticker, s);
+    }
+    rows = [...best.values()];
+  }
+  const by = $("#fSort").value;
+  const near = s => Math.abs(s.price - s.entry) / s.entry;
+  if (by === "rr") rows = rows.slice().sort((a, b) => b.entry_rr - a.entry_rr);
+  else if (by === "near") rows = rows.slice().sort((a, b) => near(a) - near(b));
+  else if (by === "from") rows = rows.slice().sort((a, b) => b.pct_from_entry - a.pct_from_entry);
+  return rows;
+}
+
+function draw() {
+  if (!DATA) return;
+  const rows = visible();
+  const su = DATA.summary;
+  const moves = rows.map(s => s.pct_from_entry);
+  const avg = moves.length ? moves.reduce((a, b) => a + b, 0) / moves.length : 0;
+  const up = moves.filter(m => m >= 0).length;
+  const best = rows.reduce((b, s) => (!b || s.pct_from_entry > b.pct_from_entry ? s : b), null);
+  const worst = rows.reduce((b, s) => (!b || s.pct_from_entry < b.pct_from_entry ? s : b), null);
+
+  $("#summary").innerHTML = rows.length
+    ? `From entry: <b>${sgn(avg)}%</b> avg across <b>${rows.length}</b> setups ·
+       <span class="up">${up} up</span> / <span class="down">${rows.length - up} down</span>
+       · best ${best.ticker} <span class="up">${sgn(best.pct_from_entry)}%</span>
+       · worst ${worst.ticker} <span class="down">${sgn(worst.pct_from_entry)}%</span>`
+    : "No setups match these filters.";
+
+  $("#scanMeta").textContent =
+    `${DATA.scanned} of ${DATA.universe_size} names · ${DATA.types.join(", ")} · ${String(DATA.generated_at).replace("T", " ").slice(0, 19)}`;
+
+  $("#grid").innerHTML = rows.map(card).join("");
+
+  $("#tv").innerHTML =
+    `<thead><tr><th>Ticker</th><th>Rule</th><th>Status</th><th>Price</th><th>Entry</th>
+     <th>Stop</th><th>Next</th><th>Risk% now</th><th>Rwd% now</th><th>R:R now</th><th>R:R entry</th><th>From entry</th><th>Vol</th></tr></thead>
+     <tbody>${rows.map(s => `<tr><td>${esc(s.ticker)}</td><td>${esc(s.setup_type)}</td>
+       <td>${esc(s.status)}</td><td>${n2(s.price)}</td><td>${n2(s.entry)}</td><td>${n2(s.stop)}</td>
+       <td>${n2(s.next_target)}</td><td>${s.risk_pct.toFixed(1)}</td><td>${s.reward_pct.toFixed(1)}</td>
+       <td>${s.rr.toFixed(1)}</td><td>${s.entry_rr.toFixed(1)}</td><td>${sgn(s.pct_from_entry)}%</td>
+       <td>${s.vol_ratio.toFixed(2)}×</td></tr>`).join("")}</tbody>`;
+  $("#tvBox").hidden = rows.length === 0;
+}
+
+async function runScan() {
+  $("#err").hidden = true;
+  $("#loading").hidden = false;
+  $("#loading").textContent = "Scanning the universe — this pulls a year of bars for ~500 names and takes a minute…";
+  try {
+    const r = await fetch("/api/scan");
+    const body = await r.text();
+    let j;
+    try { j = JSON.parse(body); }
+    catch { throw new Error(`HTTP ${r.status} returned ${r.headers.get("content-type") || "unknown"} instead of JSON — ${body.slice(0, 120).replace(/\s+/g, " ")}`); }
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    DATA = j;
+    draw();
+  } catch (e) {
+    $("#err").textContent = `Scan failed: ${e.message}`;
+    $("#err").hidden = false;
+  } finally { $("#loading").hidden = true; }
+}
+
+["#fType", "#fStatus", "#fSort", "#fMinRR", "#fDedupe"].forEach(s => { $(s).oninput = draw; });
+
+const seed = $("#embedded").textContent.trim();
+if (seed && seed !== "null") {          // static export: data is baked in
+  DATA = JSON.parse(seed);
+  $("#loading").hidden = true;
+  $("#liveOnly").style.display = "none";
+  $("#navHome").style.display = "none";   // a static export has no server to link to
+  draw();
+} else {
+  $("#rescan").onclick = runScan;
+  runScan();
+}
+</script>
+</body>
+</html>

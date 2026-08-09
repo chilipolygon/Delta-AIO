@@ -1,10 +1,68 @@
 # Delta-AIO
 
-SPX options / gamma dashboard sourced from Yahoo Finance — available as a
-localhost web app (`app.py`) or a terminal report (`spx_dashboard.py`). Both
-share the same analytics in `spx_dashboard.build_report()`.
+Two Yahoo Finance tools that share one localhost app:
 
-## Web dashboard
+- **SPX gamma dashboard** (`/`) — options positioning for the index.
+- **Setup scanner** (`/scanner`) — scans the Nasdaq-100 + S&P 500 for trade
+  setups and posts them as a card grid.
+
+```
+pip install -r requirements.txt
+python3 app.py            # -> http://127.0.0.1:5000
+```
+
+---
+
+# Setup scanner
+
+Three rules run over every constituent, and each hit is tagged with the rule
+that fired:
+
+| Rule | Fires when | Entry / stop / targets |
+|---|---|---|
+| `ote` | a fresh impulse leg (swing low → swing high) is retracing | entry = 0.62–0.79 pocket, stop = below the swing low − ½ ATR, targets = leg high then the 1.272 / 1.618 / 2.0 extensions |
+| `ma` | price > 50MA > 200MA with a rising 50MA, easing into the 21 EMA | entry = 21 EMA, stop = 20-bar low − ⅓ ATR, targets = 60-bar high then extensions |
+| `breakout` | Bollinger width in its tightest quartile, coiling near the range high | entry = 20-bar range high, stop = range low − ⅓ ATR, targets = 1× / 1.618× / 2× the measured move |
+
+Every hit is then classified the way a hand-kept tracker reads it:
+
+`IN ENTRY ZONE` → `COILING` (a breakout still under its trigger — the normal
+pre-break state) → `WAIT FOR PULLBACK` → `TARGET n/N HIT` → `BELOW ZONE` →
+`DON'T CHASE` (price is closer to T1 than to the entry). Invalidated setups —
+price below the stop — are dropped rather than shown.
+
+**Two different R:R numbers appear on each card, and the distinction matters:**
+
+- *risk / reward / R:R* are measured **from the current price** to the stop and
+  to the next unhit target — what you actually get taking the trade right now.
+  This is why an extended name shows a terrible ratio and gets flagged
+  don't-chase.
+- *at entry … R:R* is the setup's quality **at its planned entry**. This drives
+  ranking and the "Min R:R at entry" filter.
+
+```
+python3 scanner.py                       # ranked table in the terminal
+python3 scanner.py --html setups.html    # self-contained shareable page
+python3 scanner.py --types ote,breakout --limit 40 --min-rr 1.5
+python3 scanner.py --refresh-universe    # re-read the index membership lists
+```
+
+The universe comes from the Wikipedia S&P 500 / Nasdaq-100 tables and is cached
+to `.universe_cache.json`; if both are unreachable and no cache exists, it falls
+back to a built-in mega-cap list and says so. A full scan pulls a year of daily
+bars for ~500 names and takes about a minute, so `/api/scan` caches for 15
+minutes.
+
+Filters sit in one row above the grid: rule, status, sort, minimum R:R at entry,
+and whether to show every rule that fired on a ticker or only its best-scoring
+one. A table view carries every number on the cards.
+
+**These levels are derived by rule, not judgement.** They are daily-bar
+approximations and say nothing about whether a trade is a good idea.
+
+---
+
+# SPX gamma dashboard
 
 ```
 pip install -r requirements.txt

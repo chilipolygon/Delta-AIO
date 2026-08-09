@@ -154,11 +154,27 @@ python3 scanner.py --types ote,breakout --limit 40 --min-rr 1.5
 python3 scanner.py --refresh-universe    # re-read the index membership lists
 ```
 
-The universe comes from the Wikipedia S&P 500 / Nasdaq-100 tables and is cached
-to `.universe_cache.json`; if both are unreachable and no cache exists, it falls
-back to a built-in mega-cap list and says so. A full scan pulls a year of daily
-bars for ~500 names and takes about a minute, so `/api/scan` caches for 15
-minutes.
+#### The universe
+
+All **503 S&P 500 constituents** ship with the repo in `data/sp500.csv` (503, not
+500 — GOOG/GOOGL and other dual share classes each count). Membership resolves in
+this order:
+
+1. `.universe_cache.json` on disk, **unless** it holds fewer than 400 tickers, in
+   which case it is treated as stale and ignored.
+2. A live fetch of the current S&P 500 from a maintained CSV dataset. This is
+   plain-stdlib parsing, so it does **not** need `lxml`, and it refuses a
+   response with under 400 rows rather than accepting a truncated index.
+3. The Nasdaq-100 from Wikipedia, merged on top. This one *does* need `lxml`; if
+   it fails the scan continues with the S&P 500 alone and says so.
+4. The bundled `data/sp500.csv`.
+
+The point of steps 1 and 4 is that **a scan is never silently run against a
+handful of names** — offline, without `lxml`, or behind a firewall you still get
+the full index. Refresh membership with `--refresh-universe`.
+
+A full scan pulls a year of daily bars for ~500 names and takes about a minute,
+so `/api/scan` caches for 15 minutes.
 
 Filters sit in one row above the grid: rule, status, sort, minimum R:R at entry,
 and whether to show every rule that fired on a ticker or only its best-scoring

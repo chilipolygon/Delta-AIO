@@ -23,9 +23,12 @@ The same entry points back the /scanner page in app.py.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import math
 import sys
+import urllib.request
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -37,23 +40,9 @@ import yfinance as yf
 from signals import confluence
 
 CACHE_PATH = Path(__file__).with_name(".universe_cache.json")
-
-# Last-resort universe if Wikipedia is unreachable and nothing is cached. Not
-# the real index -- just liquid names so the tool still does something offline.
-FALLBACK_UNIVERSE = {
-    "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "AMZN": "Amazon",
-    "META": "Meta Platforms", "GOOGL": "Alphabet", "TSLA": "Tesla",
-    "AVGO": "Broadcom", "AMD": "Advanced Micro Devices", "NFLX": "Netflix",
-    "COST": "Costco", "PEP": "PepsiCo", "ADBE": "Adobe", "CSCO": "Cisco",
-    "INTC": "Intel", "QCOM": "Qualcomm", "TXN": "Texas Instruments",
-    "AMAT": "Applied Materials", "MU": "Micron", "INTU": "Intuit",
-    "JPM": "JPMorgan Chase", "V": "Visa", "MA": "Mastercard", "UNH": "UnitedHealth",
-    "XOM": "Exxon Mobil", "JNJ": "Johnson & Johnson", "PG": "Procter & Gamble",
-    "HD": "Home Depot", "MRK": "Merck", "ABBV": "AbbVie", "CVX": "Chevron",
-    "WMT": "Walmart", "KO": "Coca-Cola", "BAC": "Bank of America",
-    "CRM": "Salesforce", "ORCL": "Oracle", "DIS": "Walt Disney", "MCD": "McDonald's",
-    "NKE": "Nike", "PYPL": "PayPal", "SMCI": "Super Micro", "PDD": "Pinduoduo",
-}
+# Full S&P 500 membership, committed so the scanner never silently degrades to a
+# handful of names when the network or a parser dependency is unavailable.
+BUNDLED_SP500 = Path(__file__).with_name("data") / "sp500.csv"
 
 SETUP_LABELS = {"ote": "OTE pullback", "ma": "MA pullback", "breakout": "Squeeze breakout"}
 
@@ -74,7 +63,34 @@ MAX_RANK = max(STATUS_RANK.values())
 # Universe
 # --------------------------------------------------------------------------
 
+def _load_bundled() -> dict[str, str]:
+    """The committed S&P 500 list. Always available, no network, no lxml."""
+    if not BUNDLED_SP500.exists():
+        return {}
+    with BUNDLED_SP500.open(newline="") as f:
+        return {r["symbol"]: r["name"] for r in csv.DictReader(f) if r.get("symbol")}
+
+
+def _fetch_sp500_csv() -> dict[str, str]:
+    """Current S&P 500 from a maintained CSV dataset. Plain stdlib parsing, so
+    unlike the Wikipedia tables this path does not need lxml installed."""
+    url = ("https://raw.githubusercontent.com/datasets/s-and-p-500-companies"
+           "/main/data/constituents.csv")
+    with urllib.request.urlopen(url, timeout=30) as r:
+        text = r.read().decode("utf-8")
+    out = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        sym = (row.get("Symbol") or "").strip().upper().replace(".", "-")
+        if sym:
+            out[sym] = (row.get("Security") or sym).strip()
+    if len(out) < 400:
+        raise ValueError(f"only {len(out)} rows -- refusing a truncated index")
+    return out
+
+
 def _read_wiki_table(url: str, symbol_col: str, name_col: str) -> dict[str, str]:
+    """Wikipedia fallback -- needs lxml, and covers the Nasdaq-100 which the
+    CSV dataset above does not publish."""
     tables = pd.read_html(url)
     for t in tables:
         cols = {str(c).strip() for c in t.columns}
@@ -90,35 +106,51 @@ def _read_wiki_table(url: str, symbol_col: str, name_col: str) -> dict[str, str]
 
 
 def load_universe(refresh: bool = False) -> dict[str, str]:
-    """Ticker -> company name for the S&P 500 + Nasdaq-100, cached on disk."""
+    """Ticker -> company name for the S&P 500 (+ Nasdaq-100 when reachable).
+
+    Order: on-disk cache, then the live sources, then the bundled S&P 500. The
+    bundled file guarantees a full index even offline, so a scan is never
+    quietly run against a token handful of mega-caps.
+    """
     if not refresh and CACHE_PATH.exists():
         try:
-            return json.loads(CACHE_PATH.read_text())
+            cached = json.loads(CACHE_PATH.read_text())
+            if len(cached) >= 400:
+                return cached
+            print(f"  ! ignoring cache with only {len(cached)} tickers", file=sys.stderr)
         except Exception:
             pass
 
     universe: dict[str, str] = {}
-    sources = [
-        ("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", "Symbol", "Security"),
-        ("https://en.wikipedia.org/wiki/Nasdaq-100", "Ticker", "Company"),
-    ]
-    for url, sym_col, name_col in sources:
-        try:
-            universe.update(_read_wiki_table(url, sym_col, name_col))
-        except Exception as exc:  # noqa: BLE001 - any failure falls through
-            print(f"  ! could not read {url}: {exc}", file=sys.stderr)
+    try:
+        universe.update(_fetch_sp500_csv())
+        print(f"  S&P 500: {len(universe)} constituents", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ! S&P 500 CSV unavailable: {exc}", file=sys.stderr)
+
+    try:
+        ndx = _read_wiki_table("https://en.wikipedia.org/wiki/Nasdaq-100", "Ticker", "Company")
+        added = len(set(ndx) - set(universe))
+        universe.update(ndx)
+        print(f"  Nasdaq-100: {len(ndx)} constituents ({added} not already in SPX)",
+              file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ! Nasdaq-100 unavailable ({exc}); continuing with the S&P 500 only",
+              file=sys.stderr)
+
+    if len(universe) < 400:
+        bundled = _load_bundled()
+        if len(bundled) > len(universe):
+            print(f"  ! falling back to the bundled S&P 500 ({len(bundled)} names)",
+                  file=sys.stderr)
+            universe = {**bundled, **universe}
 
     if universe:
         try:
             CACHE_PATH.write_text(json.dumps(universe, indent=0, sort_keys=True))
         except OSError:
             pass
-        return universe
-
-    if CACHE_PATH.exists():
-        return json.loads(CACHE_PATH.read_text())
-    print("  ! falling back to the built-in mega-cap list", file=sys.stderr)
-    return dict(FALLBACK_UNIVERSE)
+    return universe
 
 
 # --------------------------------------------------------------------------

@@ -21,13 +21,16 @@ import yfinance as yf
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
+from options_flow import exposure_profile, profile_payload
+from regime import classify_regime
 from scanner import SCANS, load_universe, scan_universe
 from spx_dashboard import build_report
 
 app = Flask(__name__)
 
 CACHE_TTL_SECONDS = 60
-SCAN_TTL_SECONDS = 900  # a full-universe scan is expensive; 15 minutes is plenty
+SCAN_TTL_SECONDS = 900    # a full-universe scan is expensive; 15 minutes is plenty
+DETAIL_TTL_SECONDS = 300  # one option chain per click, so cache it for 5 minutes
 _cache: dict[tuple, tuple[float, dict]] = {}
 _cache_lock = threading.Lock()
 
@@ -86,6 +89,56 @@ def index():
 def scanner_page():
     # the live page fetches /api/scan; only the static export bakes data in
     return render_template("scanner.html", embedded="null")
+
+
+@app.route("/api/setup/<ticker>")
+def api_setup(ticker: str):
+    """Full detail for one name: the setup, its confluence, dealer positioning
+    and the regime read. This is the only path that fetches an option chain."""
+    ticker = ticker.upper()
+    key = ("setup", ticker)
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < DETAIL_TTL_SECONDS:
+            return jsonify(hit[1])
+
+    setup = _find_setup(ticker)
+    if setup is None:
+        return jsonify({"error": f"{ticker} is not in the current scan results"}), 404
+
+    payload = {"setup": setup, "ticker": ticker, "options": None, "regime": None}
+    conf = setup.get("confluence") or {}
+
+    prof = exposure_profile(ticker, spot=setup.get("price"))
+    if prof is None:
+        payload["options_error"] = (
+            f"Yahoo returned no option chain for {ticker}; the regime read needs one.")
+    else:
+        levels = prof["levels"]
+        payload["options"] = {
+            "spot": prof["spot"], "expiries": prof["expiries"], "atm_iv": prof["atm_iv"],
+            "levels": levels, "profile": profile_payload(prof),
+        }
+        if conf:
+            payload["regime"] = classify_regime(prof["spot"], levels, conf)
+
+    payload = json_safe(payload)
+    with _cache_lock:
+        _cache[key] = (time.time(), payload)
+    return jsonify(payload)
+
+
+def _find_setup(ticker: str) -> dict | None:
+    """Pull a ticker's best setup out of whatever scan is already cached."""
+    best = None
+    with _cache_lock:
+        entries = [v for k, v in _cache.items() if k[0] == "scan"]
+    for _, result in entries:
+        for s in result.get("setups", []):
+            if s["ticker"] == ticker and (best is None or s["score"] > best["score"]):
+                best = s
+    return best
 
 
 @app.route("/api/scan")

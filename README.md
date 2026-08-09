@@ -24,6 +24,60 @@ that fired:
 | `ma` | price > 50MA > 200MA with a rising 50MA, easing into the 21 EMA | entry = 21 EMA, stop = 20-bar low − ⅓ ATR, targets = 60-bar high then extensions |
 | `breakout` | Bollinger width in its tightest quartile, coiling near the range high | entry = 20-bar range high, stop = range low − ⅓ ATR, targets = 1× / 1.618× / 2× the measured move |
 
+### Confluence — every hit is graded on the tape
+
+Alongside the rule that fired, each name is read on MACD (cross, freshness,
+histogram), RSI (zone + direction), the 200 SMA (side, distance, slope), volume
+(vs 20-day average, expanding or fading), trend structure (MA stack plus whether
+swings still step up) and realized volatility (20d vs 60d). These roll into a
+**−100…+100 bias** that feeds the ranking score, so a setup with a bearish tape
+sinks even when its geometry is clean.
+
+These all come off daily bars, so they run over the whole universe for free.
+
+*A note on "conflicted":* momentum easing inside an intact uptrend — trend and
+200 SMA positive while MACD and RSI cool off — is the **pullback signature these
+rules hunt for**, not a contradiction. Only the structure disagreeing with itself
+(trend vs 200 SMA) counts as a conflict; treating the former as one penalised
+exactly the setups the scanner exists to find.
+
+### Click a card → dealer positioning and the full read
+
+Option chains are far too slow to fetch for 500 names (each ticker is its own
+request), so they are fetched **on click**, for one ticker, and cached 5 minutes.
+The detail drawer shows:
+
+- **A verdict** — SHORT THE BREAK / LONG THE BREAK / FADE THE EDGES / BUY THE DIP
+  / TRADE THE TREND / SIT ON HANDS — with a **conviction score out of 100**, plus
+  *What I see · The play · Invalid if*.
+- **GEX levels**: flip (zero-gamma) and its cushion, pin, floor, ceiling, the
+  −gamma fuel nodes above and below spot, the target beyond each break, and net.
+- **VEX levels**: the dominant vanna node, net vanna and its lean, and ATM IV.
+- **Trade ladder**: OTE entry, TP1…TPn and the stop, against real strikes.
+- **Gamma exposure by strike**: +GEX gold, −GEX purple, with spot, the flip and
+  the ladder rungs drawn across it. A table view carries the same numbers.
+
+Regimes are read off the gamma structure around spot:
+
+| Regime | Shape | Reading |
+|---|---|---|
+| `TRAPDOOR` | a +gamma floor under spot with much larger −gamma around it | the floor looks like support; losing it accelerates the fall |
+| `SQUEEZE FUEL` | −gamma stacked above spot | a break up feeds itself |
+| `PIN MAGNET` | one dominant +gamma node at spot | chop, fade the edges |
+| `LONG GAMMA` | net +gamma, spot above the flip | dips get absorbed |
+| `SHORT GAMMA` | spot below the flip, net −gamma | moves extend, ranges fail |
+| `NO CLEAR PIN` | no node dominates its neighbours | no structural edge |
+
+If the tape flatly contradicts the structure (a bullish regime with a −25 bias or
+worse), the verdict downgrades to STAND ASIDE rather than pretending to agree.
+
+**This is a description of where dealer hedging adds or removes energy — not a
+direction bet and not advice.** GEX/VEX assume the standard dealer convention
+(long calls, short puts), which is a convention rather than observed positioning,
+and open interest updates once daily pre-open.
+
+### Setup status
+
 Every hit is then classified the way a hand-kept tracker reads it:
 
 `IN ENTRY ZONE` → `COILING` (a breakout still under its trigger — the normal

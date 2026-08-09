@@ -34,6 +34,8 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from signals import confluence
+
 CACHE_PATH = Path(__file__).with_name(".universe_cache.json")
 
 # Last-resort universe if Wikipedia is unreachable and nothing is cached. Not
@@ -183,6 +185,8 @@ class Setup:
     pct_from_entry: float = 0.0
     targets_hit: int = 0
     score: float = 0.0
+    confluence: dict = field(default_factory=dict)
+    bias: float = 0.0
     extra: dict = field(default_factory=dict)
 
 
@@ -262,9 +266,12 @@ def score(s: Setup) -> float:
     vol_part = min(max(s.vol_ratio, 0.4), 2.0) / 2.0
     status_part = 1 - STATUS_RANK.get(s.status, MAX_RANK) / MAX_RANK
     risk_part = 1 - min(max(s.entry_risk_pct, 0), 20) / 20  # prefer tight risk
+    # confluence pulls the score toward or away from the setup's own direction;
+    # every rule here is long-only, so a bearish tape is a genuine demerit
+    bias_part = (max(min(s.bias, 100), -100) + 100) / 200      # 0..1
     # weights sum to 1.0
-    return round(100 * (0.30 * status_part + 0.25 * near_part + 0.20 * rr_part
-                        + 0.15 * risk_part + 0.10 * vol_part), 1)
+    return round(100 * (0.26 * status_part + 0.20 * near_part + 0.16 * rr_part
+                        + 0.12 * risk_part + 0.08 * vol_part + 0.18 * bias_part), 1)
 
 
 # --------------------------------------------------------------------------
@@ -444,6 +451,10 @@ def scan_universe(universe: dict[str, str], types: list[str], limit: int = 60,
     setups: list[Setup] = []
 
     for ticker, df in frames.items():
+        try:
+            conf = confluence(df)
+        except Exception:  # noqa: BLE001
+            conf = {}
         for kind in types:
             try:
                 s = SCANS[kind](df)
@@ -453,6 +464,8 @@ def scan_universe(universe: dict[str, str], types: list[str], limit: int = 60,
                 continue
             s.ticker = ticker
             s.name = universe.get(ticker, ticker)
+            s.confluence = conf
+            s.bias = float(conf.get("bias", 0.0))
             classify(s)
             if s.status == "INVALIDATED":
                 continue          # a scanner surfaces live setups, not dead ones

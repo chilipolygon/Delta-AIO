@@ -16,6 +16,7 @@
     --st-wait:#fab219;  --st-wait-t:#8a5a00;
     --st-chase:#ec835a; --st-chase-t:#a33f14;
     --st-dead:#d03b3b;  --st-dead-t:#a82a2a;
+    --gex-pos:#a97400; --gex-neg:#8b3fd9; --scrim:rgba(11,11,11,.45);
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
@@ -29,6 +30,7 @@
       --st-wait:#fab219;  --st-wait-t:#fab219;
       --st-chase:#ec835a; --st-chase-t:#ec835a;
       --st-dead:#d03b3b;  --st-dead-t:#e66767;
+      --gex-pos:#c98500; --gex-neg:#a855f7; --scrim:rgba(0,0,0,.62);
     }
   }
   :root[data-theme="dark"] {
@@ -42,6 +44,7 @@
     --st-wait:#fab219;  --st-wait-t:#fab219;
     --st-chase:#ec835a; --st-chase-t:#ec835a;
     --st-dead:#d03b3b;  --st-dead-t:#e66767;
+    --gex-pos:#c98500; --gex-neg:#a855f7; --scrim:rgba(0,0,0,.62);
   }
 
   * { box-sizing:border-box; }
@@ -130,6 +133,62 @@
   .legend .item { display:inline-flex; align-items:center; gap:5px; }
   .legend .sw { width:10px; height:10px; border-radius:3px; flex:none; }
   .caveat { font-size:11.5px; color:var(--text-muted); margin-top:22px; }
+
+  .card { cursor:pointer; transition:border-color .12s; }
+  body.static .card { cursor:default; }
+  .card:hover { border-color:var(--baseline); }
+  .card:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  .scrim { position:fixed; inset:0; background:var(--scrim); z-index:40; }
+  .scrim[hidden] { display:none; }
+  .drawer { position:fixed; top:0; right:0; bottom:0; width:min(920px,96vw);
+            background:var(--page); border-left:1px solid var(--border);
+            z-index:41; overflow-y:auto; padding:20px 22px 60px; }
+  .drawer[hidden] { display:none; }
+  .dhead { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .dhead .tk { font-size:26px; font-weight:700; }
+  .closeX { margin-left:auto; }
+
+  .verdict { border:1px solid var(--border); border-radius:11px; padding:16px 18px;
+             margin:14px 0 4px; background:var(--surface-1); border-left-width:4px; }
+  .verdict h2 { margin:0; font-size:27px; font-weight:800; letter-spacing:-.01em; }
+  .verdict p { margin:4px 0 0; font-size:13px; color:var(--text-secondary); }
+  .v-bull { border-left-color:var(--st-target); } .v-bull h2 { color:var(--st-target-t); }
+  .v-bear { border-left-color:var(--st-dead); }   .v-bear h2 { color:var(--st-dead-t); }
+  .v-neutral { border-left-color:var(--text-muted); } .v-neutral h2 { color:var(--text-primary); }
+
+  .convrow { font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+             color:var(--text-secondary); margin:14px 0 6px; font-weight:700; }
+  .convbar { height:7px; border-radius:4px; background:var(--surface-2); overflow:hidden; }
+  .convbar i { display:block; height:100%; border-radius:4px; }
+
+  .story { border-left:3px solid var(--accent); background:var(--surface-1);
+           border-radius:0 10px 10px 0; padding:14px 16px; margin:16px 0; }
+  .story p { margin:0 0 11px; font-size:13.5px; line-height:1.55; }
+  .story p:last-child { margin-bottom:0; }
+  .story b { color:var(--text-primary); }
+  .story .lbl-see { color:var(--accent); } .story .lbl-play { color:var(--st-target-t); }
+  .story .lbl-inv { color:var(--st-wait-t); }
+
+  .panels { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:12px; }
+  .panel { border:1px solid var(--border); border-radius:10px; padding:13px 15px;
+           background:var(--surface-1); }
+  .panel h3 { margin:0 0 9px; font-size:11px; text-transform:uppercase;
+              letter-spacing:.06em; color:var(--text-secondary); display:flex;
+              align-items:center; gap:6px; }
+  .panel h3 .sw { width:9px; height:9px; border-radius:50%; }
+  .lvl { display:flex; align-items:baseline; gap:8px; font-size:13px; padding:3px 0; }
+  .lvl .k { width:74px; color:var(--text-secondary); font-weight:600; flex:none; }
+  .lvl .v { font-weight:700; font-variant-numeric:tabular-nums; }
+  .lvl .x { color:var(--text-muted); font-size:11px; font-family:ui-monospace,Menlo,monospace; }
+
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 0; }
+  .chip2 { font-size:11.5px; color:var(--text-secondary); background:var(--surface-1);
+           border:1px solid var(--border); border-radius:7px; padding:5px 9px; }
+  .dfoot { font-size:11px; color:var(--text-muted); margin-top:16px; line-height:1.5; }
+  .sigrow { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:6px 16px; }
+  .sig { font-size:12.5px; display:flex; gap:7px; align-items:baseline; }
+  .sig .d { width:7px; height:7px; border-radius:50%; flex:none; margin-top:5px; }
   .nav { font-size:12.5px; color:var(--text-secondary); text-decoration:none;
          border:1px solid var(--border); border-radius:7px; padding:6px 9px; }
   .nav:hover { border-color:var(--baseline); }
@@ -223,6 +282,9 @@
   </p>
 </div>
 
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="Setup detail"></aside>
+
 <script id="embedded" type="application/json">{{ embedded | safe }}</script>
 <script>
 "use strict";
@@ -292,7 +354,8 @@ function ladder(s) {
 function card(s) {
   const cls = STATUS_CLASS[s.status] || "";
   const t1 = s.targets[0];
-  return `<article class="card ${cls} ${s.status === "INVALIDATED" ? "dead" : ""}">
+  return `<article class="card ${cls} ${s.status === "INVALIDATED" ? "dead" : ""}"
+    data-ticker="${esc(s.ticker)}" tabindex="0" role="button" aria-label="Open ${esc(s.ticker)} detail">
     <div class="chead"><span class="tk">${esc(s.ticker)}</span>
       <span class="nm">${esc(s.name)}</span><span class="px">${n2(s.price)}</span></div>
     <div class="fromrow"><span class="tag">${TYPE_LABEL[s.setup_type] || s.setup_type}</span>
@@ -306,6 +369,197 @@ function card(s) {
     ${ladder(s)}
   </article>`;
 }
+
+
+/* ===================== detail drawer ===================== */
+
+/* horizontal GEX-by-strike ladder: +GEX gold, -GEX purple, spot and the
+   flip drawn across it, trade-ladder rungs labelled down the right margin */
+function gexLadder(opt, setup) {
+  const pr = opt.profile, n = pr.strikes.length;
+  if (!n) return "<p class='muted'>No strikes in the plot window.</p>";
+  const W = 780, rowH = 22, padT = 14, padB = 34, LEFT = 46, RIGHT = 210;
+  const H = padT + n * rowH + padB;
+  const plotW = W - LEFT - RIGHT;
+  const maxAbs = Math.max(...pr.gex.map(Math.abs), 1);
+
+  const lo = Math.min(...pr.strikes), hi = Math.max(...pr.strikes);
+  // strikes run high at the top, like a price axis
+  const yOf = v => padT + ((hi - v) / ((hi - lo) || 1)) * (n - 1) * rowH + rowH / 2;
+
+  let o = "";
+  pr.strikes.forEach((k, i) => {
+    const g = pr.gex[i], y = yOf(k);
+    const w = Math.max(2, (Math.abs(g) / maxAbs) * plotW);
+    const fill = g >= 0 ? css("--gex-pos") : css("--gex-neg");
+    o += `<text x="${LEFT - 8}" y="${y + 3.5}" text-anchor="end" fill="${css("--text-secondary")}" font-variant-numeric="tabular-nums">${k}</text>`;
+    o += `<rect x="${LEFT}" y="${y - 4}" width="${w.toFixed(1)}" height="8" rx="4" fill="${fill}"/>`;
+    o += `<text x="${LEFT + w + 7}" y="${y + 3.5}" fill="${css("--text-secondary")}" font-variant-numeric="tabular-nums">${money(g)}</text>`;
+  });
+
+  // spot: solid rule across the whole plot
+  const sy = yOf(opt.spot);
+  o += `<line x1="${LEFT}" y1="${sy}" x2="${W - 8}" y2="${sy}" stroke="${css("--text-primary")}" stroke-width="1.5"/>`;
+  // label at the right end: the left margin belongs to the strike axis
+  o += `<text x="${W - 8}" y="${sy - 6}" text-anchor="end" fill="${css("--text-primary")}" font-weight="700">◆ SPOT ${n2(opt.spot)}</text>`;
+
+  // flip: dashed, because it is an estimate rather than a printed strike
+  const flip = opt.levels.flip;
+  if (flip != null && flip >= lo && flip <= hi) {
+    const fy = yOf(flip);
+    o += `<line x1="${LEFT}" y1="${fy}" x2="${LEFT + plotW}" y2="${fy}" stroke="${css("--st-chase")}" stroke-width="1.5" stroke-dasharray="7 5"/>`;
+    o += `<text x="${LEFT + plotW + 7}" y="${fy + 3.5}" fill="${css("--st-wait-t")}" font-weight="700">⚡ FLIP ${n2(flip)}</text>`;
+  }
+
+  // trade-ladder rungs in the right margin
+  const rungs = [{ lab: "OTE", v: setup.entry, c: css("--text-primary") }];
+  setup.targets.slice(0, 3).forEach((t, i) => rungs.push({ lab: `TP${i + 1}`, v: t, c: css("--st-dead-t") }));
+  rungs.push({ lab: "STOP", v: setup.stop, c: css("--st-dead") });
+  rungs.forEach(r => {
+    if (r.v == null || r.v < lo || r.v > hi) return;
+    const y = yOf(r.v);
+    o += `<line x1="${W - RIGHT + 96}" y1="${y}" x2="${W - RIGHT + 112}" y2="${y}" stroke="${r.c}" stroke-width="2.5"/>`;
+    o += `<text x="${W - RIGHT + 118}" y="${y + 3.5}" fill="${r.c}" font-weight="700">${r.lab} ${n2(r.v)}</text>`;
+  });
+
+  o += `<rect x="${LEFT}" y="${H - 20}" width="10" height="8" rx="2" fill="${css("--gex-pos")}"/>`;
+  o += `<text x="${LEFT + 15}" y="${H - 13}" fill="${css("--text-secondary")}">+GEX</text>`;
+  o += `<rect x="${LEFT + 62}" y="${H - 20}" width="10" height="8" rx="2" fill="${css("--gex-neg")}"/>`;
+  o += `<text x="${LEFT + 77}" y="${H - 13}" fill="${css("--text-secondary")}">−GEX</text>`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="gamma exposure by strike">${o}</svg>`;
+}
+
+const money = v => {
+  const a = Math.abs(v), sg = v < 0 ? "−" : "+";
+  if (a >= 1e9) return `${sg}${(a / 1e9).toFixed(1)}B`;
+  if (a >= 1e6) return `${sg}${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${sg}${(a / 1e3).toFixed(0)}K`;
+  return `${sg}${a.toFixed(0)}`;
+};
+const lvlRow = (k, v, x) => v == null ? "" :
+  `<div class="lvl"><span class="k">${k}</span><span class="v">$${n2(v)}</span>${x ? `<span class="x">${esc(x)}</span>` : ""}</div>`;
+
+function sigLine(label, part) {
+  if (!part) return "";
+  const c = part.direction > 0 ? css("--st-target") : part.direction < 0 ? css("--st-dead") : css("--text-muted");
+  return `<div class="sig"><span class="d" style="background:${c}"></span><span>${esc(part.phrase)}</span></div>`;
+}
+
+function renderDetail(d) {
+  const s = d.setup, o = d.options, r = d.regime, c = s.confluence || {};
+  const vcls = r ? (r.lean === "bull" ? "v-bull" : r.lean === "bear" ? "v-bear" : "v-neutral") : "v-neutral";
+  const convColor = !r ? css("--text-muted")
+    : r.conviction >= 70 ? css("--st-target") : r.conviction >= 45 ? css("--st-wait") : css("--text-muted");
+
+  let html = `<div class="dhead"><span class="tk">${esc(s.ticker)}</span>
+      <span class="nm">${esc(s.name)}</span>
+      <span class="px">${n2(s.price)}</span>
+      <button class="closeX" id="closeDrawer" type="button">Close ✕</button></div>`;
+
+  if (r) {
+    html += `<div class="muted" style="margin-top:2px">${esc(r.regime)} · ${esc(r.regime_sub)}</div>
+      <div class="verdict ${vcls}"><h2>${esc(r.verdict)}</h2><p>${esc(r.verdict_sub)}</p></div>
+      <div class="convrow">Conviction ${r.conviction}/100 · ${esc(r.conviction_band)}</div>
+      <div class="convbar"><i style="width:${r.conviction}%;background:${convColor}"></i></div>
+      <div class="story">
+        <p><b class="lbl-see">👁 What I see:</b> ${esc(r.narrative.see)}</p>
+        <p><b class="lbl-play">🎯 The play:</b> ${esc(r.narrative.play)}</p>
+        <p><b class="lbl-inv">⛔ Invalid if:</b> ${esc(r.narrative.invalid)}</p>
+      </div>`;
+  } else {
+    html += `<div class="banner error" style="margin-top:14px">${esc(d.options_error || "No dealer positioning available for this name, so there is no regime read.")}</div>`;
+  }
+
+  html += `<div class="panels">`;
+  if (o) {
+    const L = o.levels;
+    html += `<div class="panel"><h3><span class="sw" style="background:var(--st-wait)"></span>GEX levels</h3>
+      ${lvlRow("⚡ Flip", L.flip, L.flip_cushion != null ? `cushion ${n2(L.flip_cushion)}pt` : "")}
+      ${L.pin ? lvlRow("🧲 Pin", L.pin.strike, money(L.pin.gex)) : ""}
+      ${L.floor ? lvlRow("Floor", L.floor.strike, money(L.floor.gex)) : ""}
+      ${L.ceiling ? lvlRow("Ceiling", L.ceiling.strike, money(L.ceiling.gex)) : ""}
+      ${L.fuel_down ? lvlRow("Fuel ↓", L.fuel_down.strike, money(L.fuel_down.gex)) : ""}
+      ${L.fuel_up ? lvlRow("Fuel ↑", L.fuel_up.strike, money(L.fuel_up.gex)) : ""}
+      ${L.target_down ? lvlRow("🎯 Tgt ↓", L.target_down.strike, money(L.target_down.gex)) : ""}
+      ${L.target_up ? lvlRow("🎯 Tgt ↑", L.target_up.strike, money(L.target_up.gex)) : ""}
+      <div class="lvl"><span class="k">Σ net</span><span class="v">${money(L.net_gex)}</span><span class="x">${esc(L.gex_regime)}</span></div>
+      </div>`;
+    html += `<div class="panel"><h3><span class="sw" style="background:var(--accent)"></span>VEX levels</h3>
+      ${L.vanna_node ? lvlRow("Vanna", L.vanna_node.strike, money(L.vanna_node.vex)) : ""}
+      <div class="lvl"><span class="k">Σ net</span><span class="v">${money(L.net_vex)}</span><span class="x">${esc(L.vex_lean)}</span></div>
+      <div class="lvl"><span class="k">ATM IV</span><span class="v">${o.atm_iv != null ? o.atm_iv + "%" : "—"}</span><span class="x">${c.vol ? esc(c.vol.regime + " realized") : ""}</span></div>
+      </div>`;
+  }
+  html += `<div class="panel"><h3><span class="sw" style="background:var(--st-dead)"></span>Trade ladder · ${esc(s.setup_type)}</h3>
+      ${lvlRow("◆ OTE", s.entry, `zone ${n2(s.entry_lo)}–${n2(s.entry_hi)}`)}
+      ${s.targets.map((t, i) => lvlRow(`▸ TP${i + 1}`, t, i === 0 ? `R:R ${s.entry_rr.toFixed(1)}:1 at entry` : "")).join("")}
+      ${lvlRow("✕ Stop", s.stop, `risk ${s.entry_risk_pct.toFixed(1)}% from entry`)}
+      </div>`;
+  html += `</div>`;
+
+  html += `<div class="panel" style="margin-top:12px"><h3>Tape · MACD · RSI · 200 SMA · volume · trend</h3>
+    <div class="sigrow">
+      ${sigLine("MACD", c.macd)}${sigLine("RSI", c.rsi)}${sigLine("200 SMA", c.sma200)}
+      ${sigLine("Trend", c.trend)}${sigLine("Volume", c.volume)}${sigLine("Vol", c.vol)}
+    </div>
+    <div class="muted" style="margin-top:9px">Confluence bias ${c.bias >= 0 ? "+" : ""}${c.bias ?? "—"} · ${c.agree ?? 0} agree / ${c.disagree ?? 0} disagree</div>
+  </div>`;
+
+  if (o) {
+    html += `<div class="panel" style="margin-top:12px"><h3>Gamma exposure by strike</h3>
+      ${gexLadder(o, s)}</div>`;
+    html += `<details class="tv" open><summary>Table view — GEX/VEX by strike</summary><div class="tv-wrap"><table>
+      <thead><tr><th>Strike</th><th>GEX</th><th>VEX</th><th>Call OI</th><th>Put OI</th></tr></thead><tbody>
+      ${o.profile.strikes.map((k, i) => `<tr><td>${n2(k)}</td><td>${money(o.profile.gex[i])}</td>
+        <td>${money(o.profile.vex[i])}</td><td>${o.profile.call_oi[i].toLocaleString()}</td>
+        <td>${o.profile.put_oi[i].toLocaleString()}</td></tr>`).join("")}
+      </tbody></table></div></details>`;
+  }
+
+  if (r && r.tags.length) {
+    html += `<div class="chips">${r.tags.map(t => `<span class="chip2">${esc(t)}</span>`).join("")}</div>`;
+  }
+  html += `<p class="dfoot">${o ? `Chain: ${o.expiries.map(esc).join(", ")} · spot ${n2(o.spot)} · ` : ""}
+    Regime is a description of where dealer hedging adds or removes energy, not a direction bet or a
+    recommendation. GEX/VEX assume the standard dealer convention (long calls, short puts); open
+    interest updates once daily pre-open. Levels on the ladder are rule-derived from daily bars.</p>`;
+
+  $("#drawer").innerHTML = html;
+  $("#closeDrawer").onclick = closeDrawer;
+}
+
+function closeDrawer() {
+  $("#drawer").hidden = true;
+  $("#scrim").hidden = true;
+  document.body.style.overflow = "";
+}
+
+async function openDetail(ticker) {
+  $("#drawer").hidden = false;
+  $("#scrim").hidden = false;
+  document.body.style.overflow = "hidden";
+  $("#drawer").innerHTML = `<div class="dhead"><span class="tk">${esc(ticker)}</span>
+    <button class="closeX" id="closeDrawer" type="button">Close ✕</button></div>
+    <div class="banner" style="margin-top:14px">Fetching the option chain for ${esc(ticker)}…</div>`;
+  $("#closeDrawer").onclick = closeDrawer;
+  try {
+    const res = await fetch(`/api/setup/${encodeURIComponent(ticker)}`);
+    const body = await res.text();
+    let j;
+    try { j = JSON.parse(body); }
+    catch { throw new Error(`HTTP ${res.status} returned ${res.headers.get("content-type") || "unknown"} instead of JSON`); }
+    if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+    renderDetail(j);
+  } catch (e) {
+    $("#drawer").innerHTML = `<div class="dhead"><span class="tk">${esc(ticker)}</span>
+      <button class="closeX" id="closeDrawer" type="button">Close ✕</button></div>
+      <div class="banner error" style="margin-top:14px">Could not load detail: ${esc(e.message)}</div>`;
+    $("#closeDrawer").onclick = closeDrawer;
+  }
+}
+
+$("#scrim").onclick = closeDrawer;
+addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 
 function visible() {
   const ty = $("#fType").value, st = $("#fStatus").value;
@@ -349,6 +603,12 @@ function draw() {
     `${DATA.scanned} of ${DATA.universe_size} names · ${DATA.types.join(", ")} · ${String(DATA.generated_at).replace("T", " ").slice(0, 19)}`;
 
   $("#grid").innerHTML = rows.map(card).join("");
+  if (STATIC) return;                    // a static export has no /api/setup to call
+  $("#grid").querySelectorAll(".card").forEach(el => {
+    const tk = el.dataset.ticker;
+    el.onclick = () => openDetail(tk);
+    el.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(tk); } };
+  });
 
   $("#tv").innerHTML =
     `<thead><tr><th>Ticker</th><th>Rule</th><th>Status</th><th>Price</th><th>Entry</th>
@@ -383,11 +643,13 @@ async function runScan() {
 ["#fType", "#fStatus", "#fSort", "#fMinRR", "#fDedupe"].forEach(s => { $(s).oninput = draw; });
 
 const seed = $("#embedded").textContent.trim();
-if (seed && seed !== "null") {          // static export: data is baked in
+const STATIC = Boolean(seed && seed !== "null");
+if (STATIC) {                           // static export: data is baked in
   DATA = JSON.parse(seed);
   $("#loading").hidden = true;
   $("#liveOnly").style.display = "none";
   $("#navHome").style.display = "none";   // a static export has no server to link to
+  document.body.classList.add("static");
   draw();
 } else {
   $("#rescan").onclick = runScan;

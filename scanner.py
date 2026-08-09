@@ -63,6 +63,9 @@ MAX_RANK = max(STATUS_RANK.values())
 # Universe
 # --------------------------------------------------------------------------
 
+INDEXES = ("ndx", "sp500", "both")
+
+
 def _load_bundled() -> dict[str, str]:
     """The committed S&P 500 list. Always available, no network, no lxml."""
     if not BUNDLED_SP500.exists():
@@ -89,8 +92,8 @@ def _fetch_sp500_csv() -> dict[str, str]:
 
 
 def _read_wiki_table(url: str, symbol_col: str, name_col: str) -> dict[str, str]:
-    """Wikipedia fallback -- needs lxml, and covers the Nasdaq-100 which the
-    CSV dataset above does not publish."""
+    """Wikipedia table -- needs lxml. The only source of Nasdaq-100 membership
+    reachable without a paid data feed."""
     tables = pd.read_html(url)
     for t in tables:
         cols = {str(c).strip() for c in t.columns}
@@ -105,52 +108,76 @@ def _read_wiki_table(url: str, symbol_col: str, name_col: str) -> dict[str, str]
     raise ValueError(f"no table with {symbol_col}/{name_col} at {url}")
 
 
-def load_universe(refresh: bool = False) -> dict[str, str]:
-    """Ticker -> company name for the S&P 500 (+ Nasdaq-100 when reachable).
+def _fetch_ndx() -> dict[str, str]:
+    ndx = _read_wiki_table("https://en.wikipedia.org/wiki/Nasdaq-100", "Ticker", "Company")
+    if len(ndx) < 90:
+        raise ValueError(f"only {len(ndx)} rows -- refusing a truncated Nasdaq-100")
+    return ndx
 
-    Order: on-disk cache, then the live sources, then the bundled S&P 500. The
-    bundled file guarantees a full index even offline, so a scan is never
-    quietly run against a token handful of mega-caps.
+
+def _read_cache() -> dict:
+    if not CACHE_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(CACHE_PATH.read_text())
+    except Exception:
+        return {}
+    # migrate the old flat {ticker: name} shape, which carried no membership
+    if raw and not any(k in raw for k in ("sp500", "ndx")):
+        return {"sp500": raw}
+    return raw
+
+
+def _write_cache(cache: dict) -> None:
+    try:
+        CACHE_PATH.write_text(json.dumps(cache, indent=0, sort_keys=True))
+    except OSError:
+        pass
+
+
+def load_universe(refresh: bool = False, which: str = "ndx") -> dict[str, str]:
+    """Ticker -> company name for the requested index.
+
+    `which` is "ndx" (default), "sp500", or "both". Membership is cached per
+    index so switching between them does not refetch.
+
+    The S&P 500 has a committed fallback in data/sp500.csv, so it always
+    resolves. The Nasdaq-100 does NOT: the only reachable source is the
+    Wikipedia table, and no accurate offline list ships with this repo. That is
+    deliberate -- an approximation reconstructed from market caps came out ~66%
+    correct with junk tickers in it, and silently scanning the wrong 100 names
+    is worse than failing loudly.
     """
-    if not refresh and CACHE_PATH.exists():
+    which = which if which in INDEXES else "ndx"
+    cache = {} if refresh else _read_cache()
+    want = ["sp500", "ndx"] if which == "both" else [which]
+
+    for key in want:
+        if cache.get(key):
+            continue
         try:
-            cached = json.loads(CACHE_PATH.read_text())
-            if len(cached) >= 400:
-                return cached
-            print(f"  ! ignoring cache with only {len(cached)} tickers", file=sys.stderr)
-        except Exception:
-            pass
+            cache[key] = _fetch_sp500_csv() if key == "sp500" else _fetch_ndx()
+            print(f"  {key}: {len(cache[key])} constituents", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ! {key} unavailable: {exc}", file=sys.stderr)
+            if key == "sp500":
+                bundled = _load_bundled()
+                if bundled:
+                    print(f"  ! using the bundled S&P 500 ({len(bundled)} names)", file=sys.stderr)
+                    cache[key] = bundled
 
-    universe: dict[str, str] = {}
-    try:
-        universe.update(_fetch_sp500_csv())
-        print(f"  S&P 500: {len(universe)} constituents", file=sys.stderr)
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ! S&P 500 CSV unavailable: {exc}", file=sys.stderr)
+    if cache:
+        _write_cache(cache)
 
-    try:
-        ndx = _read_wiki_table("https://en.wikipedia.org/wiki/Nasdaq-100", "Ticker", "Company")
-        added = len(set(ndx) - set(universe))
-        universe.update(ndx)
-        print(f"  Nasdaq-100: {len(ndx)} constituents ({added} not already in SPX)",
-              file=sys.stderr)
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ! Nasdaq-100 unavailable ({exc}); continuing with the S&P 500 only",
-              file=sys.stderr)
-
-    if len(universe) < 400:
-        bundled = _load_bundled()
-        if len(bundled) > len(universe):
-            print(f"  ! falling back to the bundled S&P 500 ({len(bundled)} names)",
-                  file=sys.stderr)
-            universe = {**bundled, **universe}
-
-    if universe:
-        try:
-            CACHE_PATH.write_text(json.dumps(universe, indent=0, sort_keys=True))
-        except OSError:
-            pass
-    return universe
+    out: dict[str, str] = {}
+    for key in want:
+        out.update(cache.get(key) or {})
+    if not out:
+        raise RuntimeError(
+            f"could not resolve the {which} universe. The Nasdaq-100 needs the Wikipedia "
+            f"table (install lxml and allow en.wikipedia.org), or run with "
+            f"--universe sp500, which ships with the repo.")
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -592,14 +619,16 @@ def main():
     p.add_argument("--html", metavar="PATH", help="write a static HTML card grid")
     p.add_argument("--json", metavar="PATH", help="write the raw scan result as JSON")
     p.add_argument("--refresh-universe", action="store_true", help="re-read the index lists")
+    p.add_argument("--universe", default="ndx", choices=list(INDEXES),
+                   help="which index to scan (default: ndx)")
     args = p.parse_args()
 
     types = [t.strip() for t in args.types.split(",") if t.strip() in SCANS]
     if not types:
         p.error(f"--types must name at least one of {list(SCANS)}")
 
-    universe = load_universe(refresh=args.refresh_universe)
-    print(f"universe: {len(universe)} tickers", file=sys.stderr)
+    universe = load_universe(refresh=args.refresh_universe, which=args.universe)
+    print(f"universe: {len(universe)} tickers ({args.universe})", file=sys.stderr)
     result = scan_universe(universe, types, limit=args.limit, period=args.period,
                            min_rr=args.min_rr)
 

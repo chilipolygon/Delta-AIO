@@ -3,8 +3,8 @@
 Two Yahoo Finance tools that share one localhost app:
 
 - **SPX gamma dashboard** (`/`) — options positioning for the index.
-- **Setup scanner** (`/scanner`) — scans the Nasdaq-100 + S&P 500 for trade
-  setups and posts them as a card grid.
+- **Setup scanner** (`/scanner`) — scans the **Nasdaq-100** (default) or the
+  S&P 500 for trade setups and posts them as a card grid.
 - **Paper portfolio** (`/portfolio`) — start with an amount of cash, take setups
   from the scanner, and track equity.
 
@@ -122,6 +122,33 @@ Each signal is scored honestly:
 > onto a past bar — which would look like a result and be a fiction — the as-of
 > paths omit positioning entirely and say so.
 
+### Replay — step through a period one day at a time
+
+The bulk backtest scores every signal for you. **Replay** instead shows only what
+was knowable on the cursor date and makes you decide:
+
+1. Set Mode to *replay · step through*, pick a start date and a portfolio, and
+   press **Start replay here**.
+2. The grid shows the setups as they looked on that date. Press **Enter** on any
+   card to take it — sized by the portfolio's risk-per-trade, at that day's entry.
+3. Press **Step +1 day**. Positions are marked to the new close, stops and targets
+   resolve, and the events line reports what happened. The grid re-scans for the
+   new date.
+
+Advancing resolves the open book in a fixed order: **stop first** (when one daily
+bar spans both the stop and a target, intrabar order is unknowable, so the
+pessimistic reading wins), then the final target, then mark to the close. This is
+the same rule `backtest.evaluate()` uses — the two paths are tested to agree, so
+stepping through a period and bulk-testing it cannot tell you different stories.
+
+**A replay never carries forward information.** Its setups come from a plain
+as-of scan, not the backtest endpoint, so no outcome badges or R multiples appear
+on trades you have not taken. Auto-refresh is off, and stepping skips market
+holidays by walking the real bar series rather than guessing weekdays.
+
+Equity is snapshotted on every stepped day, so the portfolio's curve traces the
+whole replay rather than jumping between trades.
+
 ### Auto-refresh during the session
 
 In live mode an auto-refresh interval (1/5/15 min) re-runs the scan, and the
@@ -224,25 +251,26 @@ python3 scanner.py --refresh-universe    # re-read the index membership lists
 
 #### The universe
 
-All **503 S&P 500 constituents** ship with the repo in `data/sp500.csv` (503, not
-500 — GOOG/GOOGL and other dual share classes each count). Membership resolves in
-this order:
+The scanner defaults to the **Nasdaq-100**. Switch with the Universe control, or
+`--universe ndx | sp500 | both`.
 
-1. `.universe_cache.json` on disk, **unless** it holds fewer than 400 tickers, in
-   which case it is treated as stale and ignored.
-2. A live fetch of the current S&P 500 from a maintained CSV dataset. This is
-   plain-stdlib parsing, so it does **not** need `lxml`, and it refuses a
-   response with under 400 rows rather than accepting a truncated index.
-3. The Nasdaq-100 from Wikipedia, merged on top. This one *does* need `lxml`; if
-   it fails the scan continues with the S&P 500 alone and says so.
-4. The bundled `data/sp500.csv`.
+**The two indexes do not resolve the same way, and the difference matters:**
 
-The point of steps 1 and 4 is that **a scan is never silently run against a
-handful of names** — offline, without `lxml`, or behind a firewall you still get
-the full index. Refresh membership with `--refresh-universe`.
+- **S&P 500** — a live CSV fetch, with all 503 constituents committed to
+  `data/sp500.csv` as a fallback. It always resolves, even offline.
+- **Nasdaq-100** — the Wikipedia table only, which needs `lxml`. **There is no
+  bundled fallback**, so if that fetch fails the scan stops with an error rather
+  than running. That is deliberate: no free, reachable dataset publishes NDX
+  membership, and a list reconstructed from market caps by the index's own
+  construction rule came out ~66% correct, carrying junk tickers while missing
+  real members. Silently scanning the wrong 100 names is worse than failing.
 
-A full scan pulls a year of daily bars for ~500 names and takes about a minute,
-so `/api/scan` caches for 15 minutes.
+Membership is cached per index in `.universe_cache.json`; `--refresh-universe`
+re-reads it.
+
+
+A Nasdaq-100 scan pulls a year of daily bars for ~100 names; the S&P 500 is ~5×
+that and takes about a minute. `/api/scan` caches for 15 minutes.
 
 Filters sit in one row above the grid: rule, status, sort, minimum R:R at entry,
 and whether to show every rule that fired on a ticker or only its best-scoring

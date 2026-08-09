@@ -68,6 +68,9 @@
              padding:12px 14px; margin:12px 0 18px; background:var(--surface-1);
              border:1px solid var(--border); border-radius:9px; }
   .field { display:flex; flex-direction:column; gap:4px; }
+  /* an author display: rule beats the UA's [hidden]{display:none}, so every
+     field toggled with .hidden stayed on screen until this was added */
+  .field[hidden] { display:none; }
   .field label { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
   select, button, input { font:inherit; color:var(--text-primary); background:var(--page);
                           border:1px solid var(--border); border-radius:7px; padding:6px 9px; }
@@ -133,6 +136,20 @@
   .legend .item { display:inline-flex; align-items:center; gap:5px; }
   .legend .sw { width:10px; height:10px; border-radius:3px; flex:none; }
   .caveat { font-size:11.5px; color:var(--text-muted); margin-top:22px; }
+
+  .replaybar { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;
+               padding:11px 14px; margin:12px 0 0; border-radius:10px;
+               background:var(--surface-1); border:1px solid var(--st-zone); }
+  .replaybar[hidden] { display:none; }
+  .rp-sep { width:1px; align-self:stretch; background:var(--border); }
+  .rp-cursor { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .rp-eq { font-size:12.5px; color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+  .rp-ev { display:block; }
+  .rp-ev b { color:var(--text-primary); }
+  .enterbtn { font-size:11px; padding:3px 9px; font-weight:600; }
+  .heldtag { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+             padding:2px 6px; border-radius:5px; color:var(--st-zone-t);
+             border:1px solid var(--st-zone); }
 
   .idxpanel { display:flex; gap:18px; flex-wrap:wrap; align-items:center;
               padding:13px 16px; margin:12px 0 0; background:var(--surface-1);
@@ -250,6 +267,7 @@
       <select id="fMode">
         <option value="live">live</option>
         <option value="asof">as of date · backtest</option>
+        <option value="replay">replay · step through</option>
       </select>
     </div>
     <div class="field asof-only" hidden>
@@ -259,6 +277,14 @@
     <div class="field asof-only" hidden>
       <label for="fForward">Forward bars</label>
       <input id="fForward" type="number" min="1" max="250" value="30" style="width:96px">
+    </div>
+    <div class="field">
+      <label for="fUniverse">Universe</label>
+      <select id="fUniverse">
+        <option value="ndx">Nasdaq-100</option>
+        <option value="sp500">S&amp;P 500</option>
+        <option value="both">both</option>
+      </select>
     </div>
     <div class="field">
       <label for="fType">Setup</label>
@@ -325,6 +351,23 @@
     <span class="item"><span class="sw" style="background:var(--st-chase)"></span>Don't chase</span>
     <span class="item"><span class="sw" style="background:var(--text-muted)"></span>Below zone</span>
   </div>
+
+  <div class="replaybar" id="replayBar" hidden>
+    <div class="field">
+      <label for="rpPick">Portfolio</label>
+      <select id="rpPick" style="min-width:150px"></select>
+    </div>
+    <button id="rpStart" type="button">Start replay here</button>
+    <span class="rp-sep"></span>
+    <span class="rp-cursor" id="rpCursor"></span>
+    <span class="rp-eq" id="rpEquity"></span>
+    <span class="grow"></span>
+    <button id="rpStep1" type="button">Step +1 day →</button>
+    <button id="rpStep5" type="button">+5</button>
+    <button id="rpStop" type="button">End</button>
+    <a class="nav" href="/portfolio" style="padding:6px 9px">Portfolio →</a>
+  </div>
+  <div class="banner" id="rpEvents" hidden></div>
 
   <div class="banner error" id="err" hidden></div>
   <div class="banner" id="loading">Scanning…</div>
@@ -420,7 +463,11 @@ function card(s) {
     <div class="chead"><span class="tk">${esc(s.ticker)}</span>
       <span class="nm">${esc(s.name)}</span><span class="px">${n2(s.price)}</span></div>
     <div class="fromrow"><span class="tag">${TYPE_LABEL[s.setup_type] || s.setup_type}</span>
-      ${s.result ? outcomeBadge(s.result) : `<span class="pct">${sgn(s.pct_from_entry)}% from entry</span>`}</div>
+      ${isReplay() && RP && RP.replay && RP.replay.active
+        ? (heldTickers().has(s.ticker)
+            ? `<span class="heldtag">held</span>`
+            : `<button class="enterbtn" type="button" data-enter="${esc(s.ticker)}">Enter</button>`)
+        : (s.result ? outcomeBadge(s.result) : `<span class="pct">${sgn(s.pct_from_entry)}% from entry</span>`)}</div>
     <div class="headline"><span class="dot"></span><span class="htxt">${esc(s.headline)}</span></div>
     <div class="note">${esc(s.note)}</div>
     <div class="metrics">risk ${s.risk_pct.toFixed(1)}% · reward to ${s.next_target_label} ${s.reward_pct.toFixed(1)}%
@@ -756,7 +803,7 @@ function drawIndex() {
 }
 
 async function loadIndex() {
-  const q = new URLSearchParams({ index: "^GSPC" });
+  const q = new URLSearchParams({ index: $("#fUniverse").value === "ndx" ? "^NDX" : "^GSPC" });
   const asof = asofParam();
   if (asof) q.set("asof", asof);
   try {
@@ -798,13 +845,21 @@ let MARKET = null;
 
 /* ===================== mode ===================== */
 const isAsof = () => $("#fMode").value === "asof";
-const asofParam = () => (isAsof() && $("#fAsof").value) ? $("#fAsof").value : "";
+const isDated = () => $("#fMode").value !== "live";
+const asofParam = () => (isDated() && $("#fAsof").value) ? $("#fAsof").value : "";
 
 function applyMode() {
-  const asof = isAsof();
-  document.querySelectorAll(".asof-only").forEach(e => { e.hidden = !asof; });
-  document.querySelectorAll(".live-only").forEach(e => { e.hidden = asof; });
-  $("#rescan").textContent = asof ? "Run backtest" : "Run";
+  const mode = $("#fMode").value;
+  const dated = mode !== "live";               // both asof and replay need a date
+  document.querySelectorAll(".asof-only").forEach(e => { e.hidden = !dated; });
+  document.querySelectorAll(".live-only").forEach(e => { e.hidden = dated; });
+  // forward-bars only means something for the bulk backtest
+  $("#fForward").parentElement.hidden = mode !== "asof";
+  $("#replayBar").hidden = mode !== "replay";
+  $("#rescan").parentElement.hidden = mode === "replay";
+  $("#rescan").textContent = mode === "asof" ? "Run backtest" : "Run";
+  if (mode === "replay") { rpLoadPortfolios(); $("#btBar").hidden = true; }
+  else { $("#rpEvents").hidden = true; }
   arm();
 }
 
@@ -825,6 +880,144 @@ function drawBacktestBar(bt) {
     `<span class="grow"></span><span class="btstat" style="max-width:520px">${esc(bt.note)}</span>`;
   el.hidden = false;
 }
+
+
+/* ===================== step-through replay ===================== */
+let RP = null;                       // { name, replay, stats, positions, ... }
+const isReplay = () => $("#fMode").value === "replay";
+const heldTickers = () => new Set((RP && RP.positions || []).map(p => p.ticker));
+
+async function rpLoadPortfolios() {
+  try {
+    const j = await (await fetch("/api/portfolios")).json();
+    const names = (j.portfolios || []).map(p => p.name);
+    $("#rpPick").innerHTML = names.length
+      ? names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")
+      : `<option value="">create one on /portfolio first</option>`;
+    const last = localStorage.getItem("pf");
+    if (last && names.includes(last)) $("#rpPick").value = last;
+  } catch (_) { $("#rpPick").innerHTML = `<option value="">unavailable</option>`; }
+}
+
+function rpDraw() {
+  if (!RP || !RP.replay || !RP.replay.active) {
+    $("#rpCursor").textContent = "";
+    $("#rpEquity").textContent = "";
+    return;
+  }
+  const st = RP.stats, r = RP.replay;
+  $("#rpCursor").textContent = `${r.cursor}  ·  day ${r.days_elapsed}`;
+  const pnl = st.total_pnl >= 0 ? "up" : "down";
+  $("#rpEquity").innerHTML =
+    `equity <b>$${n2(st.equity)}</b> · <span class="${pnl}">${st.total_pnl >= 0 ? "+" : ""}$${n2(Math.abs(st.total_pnl))}</span>
+     · ${st.open_positions} open · ${st.closed_trades} closed · cash $${n2(st.cash)}`;
+}
+
+function rpShowEvents(events) {
+  const el = $("#rpEvents");
+  const notable = (events || []).filter(e => e.kind !== "mark");
+  if (!notable.length) {
+    const marks = (events || []).filter(e => e.kind === "mark");
+    el.innerHTML = marks.length
+      ? `<span class="rp-ev">Nothing resolved — ${marks.length} position(s) marked to the close.</span>`
+      : `<span class="rp-ev">No open positions to update.</span>`;
+    el.hidden = false;
+    return;
+  }
+  el.innerHTML = notable.map(e => {
+    const r = e.r_multiple == null ? "" :
+      ` <span class="${e.r_multiple >= 0 ? "up" : "down"}">${e.r_multiple >= 0 ? "+" : ""}${e.r_multiple}R</span>`;
+    const money = e.realized == null ? "" :
+      ` <span class="${e.realized >= 0 ? "up" : "down"}">${e.realized >= 0 ? "+" : "−"}$${n2(Math.abs(e.realized))}</span>`;
+    return `<span class="rp-ev">${esc(e.day || "")} — <b>${esc(e.text)}</b>${r}${money}</span>`;
+  }).join("");
+  el.hidden = false;
+}
+
+async function rpStart() {
+  const name = $("#rpPick").value;
+  if (!name) { $("#err").textContent = "Create a portfolio on /portfolio first."; $("#err").hidden = false; return; }
+  if (!$("#fAsof").value) { $("#err").textContent = "Pick an as-of date to start from."; $("#err").hidden = false; return; }
+  $("#err").hidden = true;
+  try {
+    RP = await fetchJson(`/api/portfolio/${encodeURIComponent(name)}/replay/start`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ asof: $("#fAsof").value, types: typesParam(),
+                             universe: $("#fUniverse").value }),
+    });
+    localStorage.setItem("pf", name);
+    rpDraw();
+    applyReplayScan();
+  } catch (e) { $("#err").textContent = e.message; $("#err").hidden = false; }
+}
+
+async function rpStep(days) {
+  if (!RP || !RP.replay || !RP.replay.active) { rpStart(); return; }
+  const btns = [$("#rpStep1"), $("#rpStep5")];
+  btns.forEach(b => b.disabled = true);
+  $("#err").hidden = true;
+  try {
+    RP = await fetchJson(`/api/portfolio/${encodeURIComponent(RP.name)}/replay/step`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    });
+    rpDraw();
+    rpShowEvents(RP.events);
+    applyReplayScan();
+  } catch (e) { $("#err").textContent = e.message; $("#err").hidden = false; }
+  finally { btns.forEach(b => b.disabled = false); }
+}
+
+async function rpStop() {
+  if (!RP || !RP.name) return;
+  try { await fetchJson(`/api/portfolio/${encodeURIComponent(RP.name)}/replay/stop`, { method: "POST" }); }
+  catch (_) { /* ending a replay is best-effort */ }
+  RP = null;
+  rpDraw();
+  $("#rpEvents").hidden = true;
+}
+
+/* the replay's setups come from the cursor-date scan the server already ran --
+   never the backtest endpoint, which would leak the outcome */
+function applyReplayScan() {
+  if (!RP) return;
+  DATA = {
+    generated_at: RP.replay.cursor, asof: RP.replay.cursor,
+    scanned: RP.scanned, universe_size: RP.scanned,
+    types: RP.replay.types, setups: RP.setups || [],
+    summary: { count: (RP.setups || []).length },
+  };
+  drawBacktestBar(null);
+  draw();
+}
+
+async function rpEnter(ticker, kind) {
+  if (!RP || !RP.name) return;
+  const setup = (RP.setups || []).find(s => s.ticker === ticker);
+  if (!setup) return;
+  try {
+    await fetchJson(`/api/portfolio/${encodeURIComponent(RP.name)}/open`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker, setup, kind: kind || "stock", source: "replay" }),
+    });
+    RP = await fetchJson(`/api/portfolio/${encodeURIComponent(RP.name)}/replay`);
+    rpDraw();
+    applyReplayScan();
+    $("#rpEvents").innerHTML = `<span class="rp-ev">Entered <b>${esc(ticker)}</b> at
+      the ${esc(RP.replay.cursor)} setup — step forward to see how it does.</span>`;
+    $("#rpEvents").hidden = false;
+  } catch (e) { $("#err").textContent = e.message; $("#err").hidden = false; }
+}
+
+const typesParam = () => {
+  const t = $("#fType").value;
+  return t ? [t] : ["ote", "ma", "breakout"];
+};
+
+$("#rpStart").onclick = rpStart;
+$("#rpStep1").onclick = () => rpStep(1);
+$("#rpStep5").onclick = () => rpStep(5);
+$("#rpStop").onclick = rpStop;
 
 function visible() {
   const ty = $("#fType").value, st = $("#fStatus").value;
@@ -872,6 +1065,9 @@ function draw() {
 
   $("#grid").innerHTML = rows.map(card).join("");
   if (STATIC) return;                    // a static export has no /api/setup to call
+  $("#grid").querySelectorAll("[data-enter]").forEach(b => {
+    b.onclick = ev => { ev.stopPropagation(); rpEnter(b.dataset.enter, "stock"); };
+  });
   $("#grid").querySelectorAll(".card").forEach(el => {
     const tk = el.dataset.ticker;
     el.onclick = () => openDetail(tk);
@@ -889,8 +1085,8 @@ function draw() {
   $("#tvBox").hidden = rows.length === 0;
 }
 
-async function fetchJson(url) {
-  const r = await fetch(url);
+async function fetchJson(url, opts) {
+  const r = await fetch(url, opts);   // opts carries method/headers/body for POSTs
   const body = await r.text();
   let j;
   try { j = JSON.parse(body); }
@@ -900,6 +1096,10 @@ async function fetchJson(url) {
 }
 
 async function runScan() {
+  if (isReplay()) {                    // replay advances via Start / Step, not this
+    if (RP && RP.replay && RP.replay.active) applyReplayScan();
+    return;
+  }
   const asof = asofParam();
   if (isAsof() && !asof) {
     $("#err").textContent = "Pick an as-of date to run a backtest.";
@@ -915,7 +1115,8 @@ async function runScan() {
 
   try {
     if (asof) {
-      const q = new URLSearchParams({ asof, forward: $("#fForward").value || "30" });
+      const q = new URLSearchParams({ asof, forward: $("#fForward").value || "30",
+                                      universe: $("#fUniverse").value });
       const bt = await fetchJson("/api/backtest?" + q);
       // the backtest already ran the scan; reuse its setups and attach outcomes
       DATA = {
@@ -926,7 +1127,7 @@ async function runScan() {
       };
       drawBacktestBar(bt);
     } else {
-      DATA = await fetchJson("/api/scan");
+      DATA = await fetchJson("/api/scan?" + new URLSearchParams({ universe: $("#fUniverse").value }));
       drawBacktestBar(null);
       if (DATA.market) drawMarket(DATA.market);
     }
@@ -947,7 +1148,7 @@ function arm() {
   clearInterval(timer);
   timer = null;
   // a historical result cannot change, so auto-refresh is live-mode only
-  if (isAsof()) return;
+  if (isDated()) return;
   const secs = parseInt($("#fAuto").value, 10);
   if (!secs) return;
   timer = setInterval(async () => {
@@ -961,6 +1162,7 @@ function arm() {
 $("#fMode").onchange = () => { applyMode(); drawBacktestBar(null); };
 $("#fAuto").onchange = arm;
 $("#fAsof").onchange = () => { if (isAsof()) { loadIndex(); runScan(); } };
+$("#fUniverse").onchange = () => { if (!isReplay()) runScan(); };
 $("#fForward").onchange = () => { if (isAsof() && $("#fAsof").value) runScan(); };
 
 const seed = $("#embedded").textContent.trim();

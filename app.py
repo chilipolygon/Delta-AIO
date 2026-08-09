@@ -14,7 +14,7 @@ the static front end in templates/.
 import argparse
 import math
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import traceback
 
@@ -23,6 +23,7 @@ import yfinance as yf
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
+import replay as rp
 from backtest import run_backtest
 from contracts import pick_contract
 from portfolio import Portfolio, from_backtest, safe_name
@@ -215,8 +216,9 @@ def api_scan():
     asof, err = _parse_asof(request.args.get("asof"))
     if err:
         return jsonify({"error": err}), 400
+    universe = request.args.get("universe", "ndx")
 
-    key = ("scan", tuple(types), limit, asof)
+    key = ("scan", tuple(types), limit, asof, universe)
     now = time.time()
     ttl = BACKTEST_TTL_SECONDS if asof else SCAN_TTL_SECONDS
     with _cache_lock:
@@ -224,7 +226,7 @@ def api_scan():
         if hit and now - hit[0] < ttl:
             return jsonify(hit[1])
 
-    result = json_safe(scan_universe(load_universe(), types, limit=limit, asof=asof))
+    result = json_safe(scan_universe(load_universe(which=universe), types, limit=limit, asof=asof))
     result["market"] = market_status()
 
     with _cache_lock:
@@ -291,15 +293,16 @@ def api_backtest():
     forward = min(max(request.args.get("forward", 30, type=int), 1), 250)
     types = [t for t in request.args.get("types", "ote,ma,breakout").split(",") if t in SCANS]
     limit = min(max(request.args.get("limit", 200, type=int), 1), 500)
+    universe = request.args.get("universe", "ndx")
 
-    key = ("backtest", asof, forward, tuple(types), limit)
+    key = ("backtest", asof, forward, tuple(types), limit, universe)
     now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
         if hit and now - hit[0] < BACKTEST_TTL_SECONDS:
             return jsonify(hit[1])
 
-    result = json_safe(run_backtest(load_universe(), types, asof, forward, limit))
+    result = json_safe(run_backtest(load_universe(which=universe), types, asof, forward, limit))
     with _cache_lock:
         _cache[key] = (time.time(), result)
     return jsonify(result)
@@ -380,9 +383,13 @@ def api_portfolio_open(name: str):
                                  spot=setup.get("price"))
         if not contract:
             return jsonify({"error": f"no option chain available for {ticker}"}), 400
+    # An entry taken during a replay belongs on the cursor date, not the wall
+    # clock -- otherwise it lands in the future relative to every stepped day.
+    when = (p.replay or {}).get("cursor") if p.replay else None
     try:
         pos = p.open_from_setup(setup, kind=kind, contract=contract,
-                                qty=body.get("qty"), source=body.get("source", "scanner"))
+                                qty=body.get("qty"), source=body.get("source", "scanner"),
+                                when=when)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     p.save()
@@ -419,8 +426,8 @@ def api_portfolio_from_backtest():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    bt = json_safe(run_backtest(load_universe(), types, asof, forward,
-                                int(body.get("limit", 200))))
+    bt = json_safe(run_backtest(load_universe(which=body.get("universe", "ndx")), types, asof,
+                                forward, int(body.get("limit", 200))))
     try:
         p = from_backtest(bt, name, cash, float(body.get("risk_pct", 1.0)),
                           kind=body.get("kind", "stock"),
@@ -434,6 +441,138 @@ def api_portfolio_from_backtest():
 def asdict_pos(pos):
     from dataclasses import asdict as _asdict
     return {**_asdict(pos), "cost_basis": pos.cost_basis, "multiplier": pos.multiplier}
+
+
+
+# --------------------------------------------------------------------------
+# Step-through replay
+# --------------------------------------------------------------------------
+
+def _replay_scan(cursor, types, universe, limit=60):
+    """Setups as they looked on the cursor date. Deliberately NOT the backtest
+    endpoint: a replay must not show outcomes it could not have known."""
+    key = ("scan", tuple(types), limit, cursor, universe)
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit:
+            return hit[1]
+    result = json_safe(scan_universe(load_universe(which=universe), types,
+                                     limit=limit, asof=cursor))
+    with _cache_lock:
+        _cache[key] = (time.time(), result)
+    return result
+
+
+def _replay_payload(p, include_setups=True):
+    r = p.replay or {}
+    cursor = _parse_asof(r.get("cursor"))[0]
+    start = _parse_asof(r.get("start"))[0]
+    if cursor:
+        rp.mark_positions(p, cursor, start - timedelta(days=420))
+    d = p.to_dict()
+    d["equity_curve"] = sorted(d.get("equity_curve") or [], key=lambda pt: str(pt.get("t") or ""))
+    out = {**d, "stats": p.stats(), "replay": rp.state(p)}
+    if include_setups and cursor:
+        scan = _replay_scan(cursor, r.get("types") or ["ote", "ma", "breakout"],
+                            r.get("universe", "ndx"))
+        out["setups"] = scan.get("setups", [])
+        out["scanned"] = scan.get("scanned")
+    return json_safe(out)
+
+
+@app.route("/api/portfolio/<name>/replay/start", methods=["POST"])
+def api_replay_start(name: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+    asof, err = _parse_asof(body.get("asof"))
+    if err or asof is None:
+        return jsonify({"error": err or "asof is required to start a replay"}), 400
+    types = [t for t in (body.get("types") or ["ote", "ma", "breakout"]) if t in SCANS]
+    p.replay = {"start": asof.isoformat(), "cursor": asof.isoformat(), "types": types,
+                "universe": body.get("universe", "ndx"), "days_elapsed": 0,
+                "log": [{"day": asof.isoformat(), "text": f"replay started at {asof}"}]}
+    # A fresh portfolio's opening point carries the wall clock, which is LATER
+    # than every replay date and inverts the curve. Re-stamp it at the as-of
+    # date. A portfolio that already traded keeps its real history and simply
+    # gains a point at the replay start.
+    if not p.positions and not p.closed:
+        p.equity_curve = [{"t": asof.isoformat(), "equity": p.equity(), "cash": p.cash}]
+    else:
+        p.equity_curve.append({"t": asof.isoformat(), "equity": p.equity(), "cash": p.cash})
+    p.save()
+    return jsonify(_replay_payload(p))
+
+
+@app.route("/api/portfolio/<name>/replay")
+def api_replay_get(name: str):
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+    if not p.replay:
+        return jsonify({"error": f"{name} has no replay running"}), 404
+    return jsonify(_replay_payload(p))
+
+
+@app.route("/api/portfolio/<name>/replay/step", methods=["POST"])
+def api_replay_step(name: str):
+    body = request.get_json(silent=True) or {}
+    steps = min(max(int(body.get("days", 1)), 1), 20)
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+    if not p.replay:
+        return jsonify({"error": f"{name} has no replay running"}), 404
+
+    start = _parse_asof(p.replay["start"])[0]
+    cursor = _parse_asof(p.replay["cursor"])[0]
+    window_start = start - timedelta(days=420)
+    today = datetime.now(tz=NY_TZ).date()
+
+    events: list[dict] = []
+    for _ in range(steps):
+        # step off a held name where possible, else the index proxy, so market
+        # holidays are skipped rather than producing an empty day
+        pilot = p.positions[0].ticker if p.positions else "SPY"
+        nxt = rp.next_session(pilot, cursor, window_start)
+        if nxt is None or nxt >= today:
+            events.append({"kind": "end", "text": "reached the end of available history"})
+            break
+        cursor = nxt
+        day_events = rp.advance(p, cursor, window_start)
+        for e in day_events:
+            e["day"] = cursor.isoformat()
+        events.extend(day_events)
+        p.replay["cursor"] = cursor.isoformat()
+        p.replay["days_elapsed"] = p.replay.get("days_elapsed", 0) + 1
+        # Snapshot every stepped day, not just opens and closes: a replay's
+        # whole point is watching equity move while a position is still open,
+        # and without this the curve is a couple of flat points.
+        rp.mark_positions(p, cursor, window_start)
+        p.equity_curve.append({"t": cursor.isoformat(), "equity": p.equity(),
+                               "cash": p.cash})
+
+    log = p.replay.get("log") or []
+    log.extend([{"day": e.get("day", cursor.isoformat()), "text": e["text"]}
+                for e in events if e.get("kind") != "mark"])
+    p.replay["log"] = log[-200:]
+    p.save()
+    return jsonify({**_replay_payload(p), "events": events})
+
+
+@app.route("/api/portfolio/<name>/replay/stop", methods=["POST"])
+def api_replay_stop(name: str):
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+    p.replay = {}
+    p.save()
+    return jsonify(json_safe({**p.to_dict(), "stats": p.stats(), "replay": {"active": False}}))
 
 
 

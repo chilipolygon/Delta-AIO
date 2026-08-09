@@ -133,6 +133,7 @@ class Portfolio:
     closed: list[Position] = field(default_factory=list)
     equity_curve: list[dict] = field(default_factory=list)
     origin: dict = field(default_factory=dict)   # e.g. the backtest that built it
+    replay: dict = field(default_factory=dict)   # step-through cursor state
 
     # ---- persistence ----
     @property

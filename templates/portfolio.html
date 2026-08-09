@@ -52,6 +52,9 @@
          padding:12px 14px; margin:12px 0 16px; background:var(--surface-1);
          border:1px solid var(--border); border-radius:10px; }
   .field { display:flex; flex-direction:column; gap:4px; }
+  /* an author display: rule beats the UA's [hidden]{display:none}, so every
+     field toggled with .hidden stayed on screen until this was added */
+  .field[hidden] { display:none; }
   .field label { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
 
   .banner { padding:11px 14px; border-radius:9px; margin-bottom:14px; font-size:13px;

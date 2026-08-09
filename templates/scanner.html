@@ -234,6 +234,7 @@
     <span class="muted" id="scanMeta"></span>
     <span class="mkt" id="mktChip"></span>
     <span class="grow"></span>
+    <a class="nav" id="navPf" href="/portfolio">Portfolio →</a>
     <a class="nav" id="navHome" href="/">Gamma dashboard →</a>
     <button id="themeBtn" type="button">Theme</button>
   </header>
@@ -588,6 +589,44 @@ function renderDetail(d) {
       </tbody></table></div></details>`;
   }
 
+  if (d.contract) {
+    const k = d.contract;
+    html += `<div class="panel" style="margin-top:12px">
+      <h3><span class="sw" style="background:var(--st-target)"></span>Suggested contract</h3>
+      <div class="lvl"><span class="k">Contract</span><span class="v" style="font-size:14px">${esc(k.symbol)}</span></div>
+      ${lvlRow("Strike", k.strike, `${k.kind} · ${k.dte}d to ${esc(k.expiry)}`)}
+      <div class="lvl"><span class="k">Quote</span><span class="v">${n2(k.bid)} / ${n2(k.ask)}</span>
+        <span class="x">mid ${n2(k.mid)}${k.spread_pct != null ? ` · ${k.spread_pct}% wide` : ""}</span></div>
+      <div class="lvl"><span class="k">Cost</span><span class="v">$${n2(k.cost_per_contract)}</span>
+        <span class="x">per contract · breakeven ${n2(k.breakeven)}</span></div>
+      <div class="lvl"><span class="k">Greeks</span><span class="v">Δ ${k.delta}</span>
+        <span class="x">IV ${k.iv ?? "—"}% · OI ${k.open_interest.toLocaleString()} · vol ${k.volume.toLocaleString()}</span></div>
+      <div class="lvl"><span class="k">At T1</span><span class="v ${k.est_pnl_at_t1 >= 0 ? "" : ""}">$${n2(k.est_value_at_t1)}</span>
+        <span class="x">${k.est_pnl_at_t1 >= 0 ? "+" : "−"}$${n2(Math.abs(k.est_pnl_at_t1))}/contract modelled</span></div>
+      <div class="lvl"><span class="k">At stop</span><span class="v">$${n2(k.est_value_at_stop)}</span>
+        <span class="x">${k.est_pnl_at_stop >= 0 ? "+" : "−"}$${n2(Math.abs(k.est_pnl_at_stop))}/contract modelled</span></div>
+      ${k.quote_warning ? `<div class="metrics" style="margin-top:8px;color:var(--st-dead-t)">⚠ ${esc(k.quote_warning)}</div>` : ""}
+      <div class="metrics" style="margin-top:8px">${esc(k.liquidity)} · ${esc(k.note)}</div>
+      </div>`;
+  }
+
+  if (hasSetup) {
+    html += `<div class="panel" style="margin-top:12px">
+      <h3>Add to a paper portfolio</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field"><label for="pfPick">Portfolio</label>
+          <select id="pfPick" style="min-width:150px"><option value="">loading…</option></select></div>
+        <div class="field"><label for="pfKind">Instrument</label>
+          <select id="pfKind"><option value="stock">stock</option>
+          <option value="option" ${d.contract ? "" : "disabled"}>option${d.contract ? "" : " (no chain)"}</option></select></div>
+        <button id="pfAdd" type="button">Add position</button>
+        <span id="pfMsg" class="metrics"></span>
+      </div>
+      <div class="metrics" style="margin-top:8px">Size is set from the portfolio's risk-per-trade
+        against this setup's stop — simulation only, nothing is routed.</div>
+      </div>`;
+  }
+
   if (r && r.tags.length) {
     html += `<div class="chips">${r.tags.map(t => `<span class="chip2">${esc(t)}</span>`).join("")}</div>`;
   }
@@ -598,6 +637,40 @@ function renderDetail(d) {
 
   $("#drawer").innerHTML = html;
   $("#closeDrawer").onclick = closeDrawer;
+  if (hasSetup) wirePortfolioAdd(s, d.contract);
+}
+
+async function wirePortfolioAdd(setup, contract) {
+  const sel = $("#pfPick"), msg = $("#pfMsg"), btn = $("#pfAdd");
+  if (!sel) return;
+  try {
+    const j = await (await fetch("/api/portfolios")).json();
+    const names = (j.portfolios || []).map(p => p.name);
+    sel.innerHTML = names.length
+      ? names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")
+      : `<option value="">none — create one first</option>`;
+    const last = localStorage.getItem("pf");
+    if (last && names.includes(last)) sel.value = last;
+  } catch (_) { sel.innerHTML = `<option value="">unavailable</option>`; }
+
+  btn.onclick = async () => {
+    if (!sel.value) { msg.textContent = "Create a portfolio first."; return; }
+    btn.disabled = true; msg.textContent = "adding…";
+    try {
+      const res = await fetch(`/api/portfolio/${encodeURIComponent(sel.value)}/open`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: setup.ticker, setup, kind: $("#pfKind").value,
+                               contract: $("#pfKind").value === "option" ? contract : null }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      const p = j.position;
+      msg.innerHTML = `added <b>${p.qty}</b> ${esc(p.kind === "option" ? "contract(s)" : "share(s)")}
+        — equity now $${n2(j.stats.equity)}`;
+    } catch (e) {
+      msg.textContent = e.message;
+    } finally { btn.disabled = false; }
+  };
 }
 
 function closeDrawer() {

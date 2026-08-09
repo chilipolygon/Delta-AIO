@@ -50,7 +50,8 @@ def evaluate(setup: dict, future: pd.DataFrame) -> dict:
 
     out = {"outcome": "NO FILL", "filled": False, "fill_bar": None, "bars_held": None,
            "targets_hit": 0, "exit": None, "r_multiple": None,
-           "mfe_r": None, "mae_r": None, "forward_bars": int(len(future))}
+           "mfe_r": None, "mae_r": None, "forward_bars": int(len(future)),
+           "fill_date": None, "exit_date": None}
     if future.empty or risk <= 0:
         return out
 
@@ -66,7 +67,8 @@ def evaluate(setup: dict, future: pd.DataFrame) -> dict:
     if fill_i is None:
         return out
 
-    out.update(filled=True, fill_bar=int(fill_i))
+    out.update(filled=True, fill_bar=int(fill_i),
+               fill_date=str(future.index[fill_i].date()))
 
     # 2) from the fill, walk forward to the first stop or target
     best_hi, worst_lo = entry, entry
@@ -77,20 +79,23 @@ def evaluate(setup: dict, future: pd.DataFrame) -> dict:
 
         if lows[j] <= stop:
             out.update(outcome="STOPPED", exit=round(stop, 2), bars_held=int(j - fill_i),
-                       targets_hit=hit, r_multiple=-1.0)
+                       targets_hit=hit, r_multiple=-1.0,
+                       exit_date=str(future.index[j].date()))
             break
         while hit < len(targets) and highs[j] >= targets[hit]:
             hit += 1
         if hit >= len(targets):
             out.update(outcome="ALL TARGETS", exit=round(targets[-1], 2),
                        bars_held=int(j - fill_i), targets_hit=hit,
-                       r_multiple=round((targets[-1] - entry) / risk, 2))
+                       r_multiple=round((targets[-1] - entry) / risk, 2),
+                       exit_date=str(future.index[j].date()))
             break
     else:
         last = float(future["Close"].iloc[-1])
         out.update(outcome=f"TARGET {hit}/{len(targets)}" if hit else "OPEN",
                    exit=round(last, 2), bars_held=int(len(future) - 1 - fill_i),
-                   targets_hit=hit, r_multiple=round((last - entry) / risk, 2))
+                   targets_hit=hit, r_multiple=round((last - entry) / risk, 2),
+                   exit_date=str(future.index[-1].date()))
 
     out["mfe_r"] = round((best_hi - entry) / risk, 2)
     out["mae_r"] = round((worst_lo - entry) / risk, 2)

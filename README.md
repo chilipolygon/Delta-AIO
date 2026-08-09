@@ -5,6 +5,8 @@ Two Yahoo Finance tools that share one localhost app:
 - **SPX gamma dashboard** (`/`) — options positioning for the index.
 - **Setup scanner** (`/scanner`) — scans the Nasdaq-100 + S&P 500 for trade
   setups and posts them as a card grid.
+- **Paper portfolio** (`/portfolio`) — start with an amount of cash, take setups
+  from the scanner, and track equity.
 
 ```
 pip install -r requirements.txt
@@ -128,6 +130,72 @@ Out of hours the refresh skips the expensive universe scan and only keeps the
 index panel current, since the tape isn't moving. Auto-refresh is disabled in
 as-of mode, where the result cannot change. *Market holidays are not tracked* —
 the check is weekday and clock only.
+
+### The exact contract
+
+Open a card's detail drawer and it resolves **one concrete option contract** for
+the setup: the full OCC symbol, strike, expiry and DTE, live bid/ask/mid and the
+spread, IV, delta, open interest and volume, cost per contract, breakeven, and
+the modelled value at T1 and at the stop.
+
+Direction follows the setup (every rule here is long-only, so a call). Expiry is
+the first listed one with at least 30 days — targets are swing levels, and buying
+less time than the thesis needs is a common way a correct setup still loses.
+Strike defaults to the entry (`--moneyness atm`; `otm` aims halfway to T1).
+
+Contracts are resolved **in the drawer, not the grid** — each one needs that
+ticker's chain, and 500 of those is not a thing you can do per scan.
+
+Two honesty guards: liquidity is labelled (thin / wide / moderate / liquid), and
+if the quoted mid disagrees with the Black-Scholes model by more than 3× the
+contract is flagged as a stale quote. Cost, breakeven, the P&L estimates *and the
+position size* all rest on that price, so a junk print must not pass silently.
+
+---
+
+# Paper portfolio
+
+```
+python3 portfolio.py new --name main --cash 25000
+python3 portfolio.py list
+```
+
+Or use `/portfolio`: pick a starting balance and risk-per-trade, then add setups
+from the scanner's detail drawer as stock or options. The page shows equity and
+cash, realized/unrealized, win rate, average R, max drawdown, an equity curve,
+and tables of open positions (marked to the last close) and closed trades.
+
+**Sizing** risks a fixed % of *current* equity — so wins compound and losses
+shrink the next position — from the entry to the setup's own stop, capped at 20%
+of equity in any single position.
+
+- *stock*: `shares = risk budget ÷ (entry − stop)`
+- *option*: risk per contract is the modelled premium lost between here and the
+  stop, **not** the whole premium (which badly undersizes) and not zero (which a
+  far-dated contract's reprice can imply). It is floored at 25% of premium so a
+  flattering reprice cannot produce an enormous position.
+
+### Backtest → portfolio
+
+`/portfolio` can replay a backtest into a saved portfolio, sized against equity
+at the time of each trade. Fills and exits are applied **in date order**, so
+positions overlap the way they really would.
+
+That has a consequence worth stating plainly: **capital is finite, and a replay
+usually cannot take every signal.** With positions held concurrently, later ones
+can be unaffordable. Those are recorded and reported on the page — "took 5 of 27
+filled signals, the 22 it skipped were worth +14.6R" — because a portfolio that
+quietly took a fifth of the signals would misrepresent both the strategy and what
+that starting balance can actually carry.
+
+Options mode prices contracts from the **current** chain, not the one that
+existed on the as-of date. Stock mode is the honest one for a historical replay.
+
+**All of this is a simulation.** Nothing is routed anywhere. Fills are assumed at
+the recorded price with no slippage or commission, and option marks come from
+Black-Scholes with flat IV rather than a live quote.
+
+---
 
 ### Setup status
 

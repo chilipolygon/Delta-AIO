@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .universe_cache.json
 setups.html
+data/portfolios/

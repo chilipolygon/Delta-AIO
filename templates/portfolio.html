@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper portfolio</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:#f9f9f7; --surface-1:#fcfcfb; --surface-2:#f4f3f0;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
+    --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --good:#0ca30c; --good-t:#006300;
+    --bad:#d03b3b; --bad-t:#a82a2a; --warn:#fab219; --warn-t:#8a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#212120;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5; --good:#0ca30c; --good-t:#0ca30c;
+      --bad:#d03b3b; --bad-t:#e66767; --warn:#fab219; --warn-t:#fab219;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#212120;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,0.10);
+    --accent:#3987e5; --good:#0ca30c; --good-t:#0ca30c;
+    --bad:#d03b3b; --bad-t:#e66767; --warn:#fab219; --warn-t:#fab219;
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text-primary);
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1400px; margin:0 auto; padding:20px 18px 60px; }
+  header.top { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  header.top h1 { font-size:17px; font-weight:600; margin:0; }
+  .muted { color:var(--text-muted); font-size:13px; }
+  .grow { flex:1; }
+  a.nav, button, select, input { font:inherit; color:var(--text-primary);
+        background:var(--page); border:1px solid var(--border);
+        border-radius:7px; padding:6px 10px; text-decoration:none; }
+  button { cursor:pointer; }
+  button:hover, a.nav:hover { border-color:var(--baseline); }
+  button.primary { background:var(--accent); color:#fff; border-color:transparent; font-weight:600; }
+  button.danger { color:var(--bad-t); }
+
+  .bar { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;
+         padding:12px 14px; margin:12px 0 16px; background:var(--surface-1);
+         border:1px solid var(--border); border-radius:10px; }
+  .field { display:flex; flex-direction:column; gap:4px; }
+  .field label { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+
+  .banner { padding:11px 14px; border-radius:9px; margin-bottom:14px; font-size:13px;
+            background:var(--surface-1); border:1px solid var(--border); color:var(--text-secondary); }
+  .banner.error { border-left:3px solid var(--bad); }
+  .banner.warn { border-left:3px solid var(--warn); }
+  .banner[hidden] { display:none; }
+
+  .hero { display:flex; gap:36px; flex-wrap:wrap; align-items:center;
+          background:var(--surface-1); border:1px solid var(--border);
+          border-radius:12px; padding:20px 22px; margin-bottom:14px; }
+  .hero .k { font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+  .hero .v { font-size:44px; font-weight:700; line-height:1.05; letter-spacing:-.02em; }
+  .hero .s { font-size:13px; color:var(--text-secondary); margin-top:3px; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:11px; margin-bottom:14px; }
+  .tile { background:var(--surface-1); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .tile .k { font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+  .tile .v { font-size:22px; font-weight:700; margin-top:2px; }
+  .tile .d { font-size:11.5px; color:var(--text-secondary); }
+
+  .card { background:var(--surface-1); border:1px solid var(--border);
+          border-radius:12px; padding:16px 18px 12px; margin-bottom:14px; }
+  .card h2 { font-size:14px; font-weight:600; margin:0 0 2px; }
+  .card .sub { font-size:12px; color:var(--text-secondary); margin:0 0 12px; }
+
+  .up { color:var(--good-t); } .down { color:var(--bad-t); }
+  svg { display:block; }
+  svg text { font:10px system-ui,-apple-system,"Segoe UI",sans-serif; }
+
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th,td { text-align:right; padding:7px 9px; border-bottom:1px solid var(--grid);
+          font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; }
+  th { color:var(--text-muted); text-transform:uppercase; font-size:10px; letter-spacing:.04em; }
+  .tw { overflow-x:auto; }
+  .empty { color:var(--text-muted); font-size:12.5px; padding:10px 0; }
+  .pill { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+          border:1px solid var(--border); border-radius:5px; padding:2px 6px; color:var(--text-secondary); }
+  .caveat { font-size:11.5px; color:var(--text-muted); margin-top:20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Paper portfolio</h1>
+    <span class="muted" id="meta"></span>
+    <span class="grow"></span>
+    <a class="nav" href="/scanner">Scanner →</a>
+    <a class="nav" href="/">Gamma dashboard →</a>
+    <button id="themeBtn" type="button">Theme</button>
+  </header>
+
+  <div class="bar">
+    <div class="field">
+      <label for="pick">Portfolio</label>
+      <select id="pick" style="min-width:190px"></select>
+    </div>
+    <button id="reload" type="button">Refresh marks</button>
+    <span class="grow"></span>
+    <div class="field">
+      <label for="nName">New name</label>
+      <input id="nName" placeholder="main" style="width:130px">
+    </div>
+    <div class="field">
+      <label for="nCash">Starting capital</label>
+      <input id="nCash" type="number" min="1" step="100" value="25000" style="width:130px">
+    </div>
+    <div class="field">
+      <label for="nRisk">Risk / trade %</label>
+      <input id="nRisk" type="number" min="0.1" max="10" step="0.1" value="1" style="width:100px">
+    </div>
+    <button id="create" class="primary" type="button">Create</button>
+  </div>
+
+  <div class="banner error" id="err" hidden></div>
+  <div class="banner warn" id="warn" hidden></div>
+  <div class="banner" id="loading">Loading…</div>
+
+  <div id="body" hidden></div>
+
+  <div class="card">
+    <h2>Build a portfolio from a backtest</h2>
+    <p class="sub">Replays every filled signal from an as-of scan, sized against equity at the
+      time of each trade, so wins compound and losses shrink the next position.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div class="field"><label for="btName">Name</label><input id="btName" placeholder="bt-mar" style="width:130px"></div>
+      <div class="field"><label for="btCash">Capital</label><input id="btCash" type="number" value="25000" style="width:120px"></div>
+      <div class="field"><label for="btAsof">As of</label><input id="btAsof" type="date" style="width:150px"></div>
+      <div class="field"><label for="btFwd">Forward bars</label><input id="btFwd" type="number" value="30" style="width:100px"></div>
+      <div class="field"><label for="btRisk">Risk %</label><input id="btRisk" type="number" value="1" step="0.1" style="width:90px"></div>
+      <div class="field"><label for="btKind">Instrument</label>
+        <select id="btKind"><option value="stock">stock</option><option value="option">options</option></select></div>
+      <button id="btRun" class="primary" type="button">Run &amp; save</button>
+    </div>
+    <p class="sub" style="margin:10px 0 0">Options mode prices each contract from the CURRENT chain,
+      not the chain that existed on the as-of date — Yahoo does not serve historical chains. Stock
+      mode is the honest one for a historical replay.</p>
+  </div>
+
+  <p class="caveat">
+    Simulation only. Nothing is routed anywhere. Fills are assumed at the recorded price with no
+    slippage or commission, and option marks come from Black–Scholes with flat IV rather than a live
+    quote. Position sizing risks a fixed % of equity from entry to stop, capped at 20% of equity in
+    any one position.
+  </p>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+let PF = null;
+
+const root = document.documentElement;
+if (localStorage.getItem("theme")) root.dataset.theme = localStorage.getItem("theme");
+$("#themeBtn").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = root.dataset.theme || (dark ? "dark" : "light");
+  root.dataset.theme = cur === "dark" ? "light" : "dark";
+  localStorage.setItem("theme", root.dataset.theme);
+  draw();
+};
+const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const money = v => (v == null ? "—" : (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const money0 = v => (v == null ? "—" : (v < 0 ? "−$" : "$") + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 }));
+const pct = v => (v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "%");
+const cls = v => v == null ? "" : v >= 0 ? "up" : "down";
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const body = await r.text();
+  let j;
+  try { j = JSON.parse(body); }
+  catch { throw new Error(`HTTP ${r.status} returned ${r.headers.get("content-type") || "unknown"} instead of JSON`); }
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+/* ---------- equity curve ---------- */
+function equityChart(curve, start) {
+  if (!curve || curve.length < 2)
+    return `<p class="empty">The curve needs at least two points — take a trade to start it.</p>`;
+  const W = 900, H = 260, M = { t: 16, r: 62, b: 26, l: 68 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const eq = curve.map(p => p.equity);
+  let lo = Math.min(...eq, start), hi = Math.max(...eq, start);
+  const pad = (hi - lo) * 0.12 || Math.max(start * 0.02, 1);
+  lo -= pad; hi += pad;
+  const X = i => (i / (curve.length - 1)) * iw;
+  const Y = v => ih - ((v - lo) / (hi - lo)) * ih;
+
+  let o = "";
+  const step = (hi - lo) / 4;
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + step * k;
+    o += `<line x1="0" y1="${Y(v).toFixed(1)}" x2="${iw}" y2="${Y(v).toFixed(1)}" stroke="${css("--grid")}" stroke-width="1"/>`;
+    o += `<text x="-10" y="${(Y(v) + 3.5).toFixed(1)}" text-anchor="end" fill="${css("--text-muted")}">${money0(v)}</text>`;
+  }
+  // starting capital reference
+  o += `<line x1="0" y1="${Y(start).toFixed(1)}" x2="${iw}" y2="${Y(start).toFixed(1)}" stroke="${css("--baseline")}" stroke-width="1"/>`;
+  o += `<text x="${iw + 6}" y="${(Y(start) + 3.5).toFixed(1)}" fill="${css("--text-muted")}">start</text>`;
+
+  const pts = curve.map((p, i) => `${X(i).toFixed(1)},${Y(p.equity).toFixed(1)}`);
+  const last = curve[curve.length - 1];
+  const up = last.equity >= start;
+  const col = up ? css("--good") : css("--bad");
+  o += `<path d="M0,${ih} L${pts.join(" L")} L${iw},${ih} Z" fill="${col}" opacity="0.10"/>`;
+  o += `<polyline points="${pts.join(" ")}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  o += `<circle cx="${X(curve.length - 1).toFixed(1)}" cy="${Y(last.equity).toFixed(1)}" r="4.5" fill="${col}" stroke="${css("--surface-1")}" stroke-width="2"/>`;
+  o += `<text x="${iw + 6}" y="${(Y(last.equity) + 3.5).toFixed(1)}" fill="${css("--text-primary")}" font-weight="700">${money0(last.equity)}</text>`;
+
+  const first = String(curve[0].t || "").slice(0, 10), lastT = String(last.t || "").slice(0, 10);
+  o += `<text x="0" y="${ih + 18}" fill="${css("--text-muted")}">${esc(first)}</text>`;
+  o += `<text x="${iw}" y="${ih + 18}" text-anchor="end" fill="${css("--text-muted")}">${esc(lastT)}</text>`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+    aria-label="equity curve"><g transform="translate(${M.l},${M.t})">${o}</g></svg>`;
+}
+
+/* ---------- render ---------- */
+function draw() {
+  if (!PF) return;
+  const st = PF.stats, o = PF.origin || {};
+  $("#meta").textContent = `${PF.name} · ${st.open_positions} open · ${st.closed_trades} closed · risk ${PF.risk_pct}%/trade`;
+
+  const skipNote = o.signals_skipped
+    ? `<div class="banner warn">This replay could only take <b>${o.signals_taken}</b> of
+       <b>${o.signals_filled}</b> filled signals — ${esc(o.skipped_reason || "capital constrained")}.
+       The ${o.signals_skipped} it skipped were worth ${o.skipped_total_r >= 0 ? "+" : ""}${o.skipped_total_r}R,
+       so this equity curve reflects what this balance could actually carry, not the strategy in full.</div>`
+    : "";
+
+  const posRows = PF.positions.map(p => `<tr>
+      <td>${esc(p.ticker)}</td>
+      <td><span class="pill">${esc(p.kind)}</span> ${esc(p.setup_type || "")}</td>
+      <td>${p.qty}</td><td>${money(p.entry_price)}</td><td>${money(p.mark)}</td>
+      <td>${money(p.cost_basis)}</td><td>${money(p.market_value)}</td>
+      <td class="${cls(p.unrealized)}">${money(p.unrealized)}</td>
+      <td>${p.stop == null ? "—" : money(p.stop)}</td>
+      <td>${p.contract ? esc(p.contract.symbol) : "—"}</td>
+      <td><button type="button" data-close="${esc(p.id)}" data-mark="${p.mark ?? p.entry_price}">Close</button></td>
+    </tr>`).join("");
+
+  const closedRows = PF.closed.slice().reverse().map(p => `<tr>
+      <td>${esc(p.ticker)}</td>
+      <td><span class="pill">${esc(p.kind)}</span> ${esc(p.setup_type || "")}</td>
+      <td>${p.qty}</td><td>${money(p.entry_price)}</td><td>${money(p.exit_price)}</td>
+      <td class="${cls(p.realized)}">${money(p.realized)}</td>
+      <td class="${cls(p.r_multiple)}">${p.r_multiple == null ? "—" : p.r_multiple.toFixed(2) + "R"}</td>
+      <td>${esc(p.exit_reason || "")}</td>
+      <td>${esc(String(p.closed_at || "").slice(0, 10))}</td>
+    </tr>`).join("");
+
+  $("#body").innerHTML = `
+    ${skipNote}
+    <div class="hero">
+      <div><div class="k">Equity</div><div class="v">${money(st.equity)}</div>
+        <div class="s ${cls(st.total_pnl)}">${money(st.total_pnl)} (${pct(st.total_pnl_pct)}) from ${money0(st.starting_cash)}</div></div>
+      <div><div class="k">Cash</div><div class="v" style="font-size:26px">${money(st.cash)}</div>
+        <div class="s">${st.exposure_pct}% invested</div></div>
+    </div>
+
+    <div class="tiles">
+      ${tile("Realized", money(st.realized), `${st.closed_trades} closed`, cls(st.realized))}
+      ${tile("Unrealized", money(st.unrealized), `${st.open_positions} open`, cls(st.unrealized))}
+      ${tile("Win rate", st.win_rate + "%", "of closed trades")}
+      ${tile("Avg R", st.avg_r, "per closed trade", cls(st.avg_r))}
+      ${tile("Max drawdown", st.max_drawdown_pct + "%", "peak to trough", st.max_drawdown_pct < 0 ? "down" : "")}
+      ${tile("Invested", money0(st.invested), `cap 20% per position`)}
+    </div>
+
+    <div class="card">
+      <h2>Equity curve</h2>
+      <p class="sub">${PF.origin && PF.origin.type === "backtest"
+        ? `Replay of the ${esc(PF.origin.asof)} backtest over ${PF.origin.forward_days} forward bars.`
+        : "Marked after every open and close."}</p>
+      ${equityChart(PF.equity_curve, st.starting_cash)}
+      <details style="margin-top:10px"><summary class="sub" style="cursor:pointer">Table view — equity points</summary>
+        <div class="tw" style="max-height:240px;overflow:auto"><table>
+        <thead><tr><th>When</th><th>Equity</th><th>Cash</th></tr></thead><tbody>
+        ${PF.equity_curve.map(p => `<tr><td>${esc(String(p.t).slice(0, 19).replace("T", " "))}</td>
+          <td>${money(p.equity)}</td><td>${money(p.cash)}</td></tr>`).join("")}
+        </tbody></table></div></details>
+    </div>
+
+    <div class="card">
+      <h2>Open positions</h2>
+      ${PF.positions.length ? `<div class="tw"><table>
+        <thead><tr><th>Ticker</th><th>Kind</th><th>Qty</th><th>Entry</th><th>Mark</th>
+        <th>Cost</th><th>Value</th><th>Unrealized</th><th>Stop</th><th>Contract</th><th></th></tr></thead>
+        <tbody>${posRows}</tbody></table></div>
+        ${PF.unmarked && PF.unmarked.length ? `<p class="sub" style="margin-top:8px">No live price for
+          ${PF.unmarked.map(esc).join(", ")} — those are held at entry, so equity is stale for them.</p>` : ""}`
+        : `<p class="empty">Nothing open. Add a setup from the scanner, or build a portfolio from a backtest below.</p>`}
+    </div>
+
+    <div class="card">
+      <h2>Closed trades</h2>
+      ${PF.closed.length ? `<div class="tw"><table>
+        <thead><tr><th>Ticker</th><th>Kind</th><th>Qty</th><th>Entry</th><th>Exit</th>
+        <th>Realized</th><th>R</th><th>Reason</th><th>Closed</th></tr></thead>
+        <tbody>${closedRows}</tbody></table></div>`
+        : `<p class="empty">No closed trades yet.</p>`}
+    </div>`;
+
+  $("#body").hidden = false;
+  $("#body").querySelectorAll("[data-close]").forEach(b => {
+    b.onclick = () => closePos(b.dataset.close, parseFloat(b.dataset.mark));
+  });
+}
+
+const tile = (k, v, d, c = "") => `<div class="tile"><div class="k">${k}</div>
+  <div class="v ${c}">${v}</div><div class="d">${d}</div></div>`;
+
+/* ---------- actions ---------- */
+async function loadList(select) {
+  const j = await api("/api/portfolios");
+  const names = j.portfolios.map(p => p.name);
+  $("#pick").innerHTML = names.length
+    ? names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")
+    : `<option value="">— none yet —</option>`;
+  if (select && names.includes(select)) $("#pick").value = select;
+  return names;
+}
+
+async function loadPortfolio(name) {
+  if (!name) { $("#body").hidden = true; $("#loading").hidden = true; return; }
+  $("#loading").hidden = false;
+  $("#err").hidden = true;
+  try {
+    PF = await api(`/api/portfolio/${encodeURIComponent(name)}`);
+    localStorage.setItem("pf", name);
+    if ($("#pick").value !== name) $("#pick").value = name;   // keep the picker honest
+    draw();
+  } catch (e) {
+    $("#err").textContent = `Could not load ${name}: ${e.message}`;
+    $("#err").hidden = false;
+    $("#body").hidden = true;
+  } finally { $("#loading").hidden = true; }
+}
+
+async function closePos(id, price) {
+  const px = prompt("Close at what price?", price ? price.toFixed(2) : "");
+  if (px === null) return;
+  const v = parseFloat(px);
+  if (!isFinite(v) || v < 0) { alert("Enter a non-negative number."); return; }
+  try {
+    await api(`/api/portfolio/${encodeURIComponent(PF.name)}/close`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, price: v, reason: "manual" }),
+    });
+    await loadPortfolio(PF.name);
+  } catch (e) { $("#err").textContent = e.message; $("#err").hidden = false; }
+}
+
+$("#create").onclick = async () => {
+  $("#err").hidden = true;
+  try {
+    const j = await api("/api/portfolio", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: $("#nName").value, cash: parseFloat($("#nCash").value),
+                             risk_pct: parseFloat($("#nRisk").value) }),
+    });
+    await loadList(j.name);
+    await loadPortfolio(j.name);
+  } catch (e) { $("#err").textContent = e.message; $("#err").hidden = false; }
+};
+
+$("#btRun").onclick = async () => {
+  $("#err").hidden = true;
+  const btn = $("#btRun"); btn.disabled = true; btn.textContent = "Running…";
+  try {
+    const j = await api("/api/portfolio/from-backtest", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: $("#btName").value, cash: parseFloat($("#btCash").value),
+        asof: $("#btAsof").value, forward: parseInt($("#btFwd").value, 10),
+        risk_pct: parseFloat($("#btRisk").value), kind: $("#btKind").value, overwrite: true,
+      }),
+    });
+    await loadList(j.name);
+    await loadPortfolio(j.name);
+  } catch (e) { $("#err").textContent = e.message; $("#err").hidden = false; }
+  finally { btn.disabled = false; btn.textContent = "Run & save"; }
+};
+
+$("#pick").onchange = () => loadPortfolio($("#pick").value);
+$("#reload").onclick = () => loadPortfolio($("#pick").value);
+
+(async () => {
+  $("#btAsof").value = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+  $("#btAsof").max = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  try {
+    const names = await loadList(localStorage.getItem("pf"));
+    const want = new URLSearchParams(location.search).get("name") || $("#pick").value;
+    if (names.length) await loadPortfolio(want);
+    else { $("#loading").hidden = true; }
+  } catch (e) {
+    $("#err").textContent = e.message; $("#err").hidden = false; $("#loading").hidden = true;
+  }
+})();
+</script>
+</body>
+</html>

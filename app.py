@@ -18,11 +18,14 @@ from datetime import datetime
 import time
 import traceback
 
+import numpy as np
 import yfinance as yf
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
 from backtest import run_backtest
+from contracts import pick_contract
+from portfolio import Portfolio, from_backtest, safe_name
 from index_signal import INDEX_PROXY, index_signal
 from options_flow import exposure_profile, profile_payload
 from regime import classify_regime
@@ -81,13 +84,20 @@ _cache_lock = threading.Lock()
 
 
 def json_safe(obj):
-    """Replace non-finite floats with None.
+    """Make a payload JSON-serializable.
 
-    json.dumps happily writes bare NaN/Infinity, which are not valid JSON and
-    make JSON.parse throw in the browser. A thin chain legitimately produces
-    NaN for RSI, ATM IV or the P/C ratios, so this has to be scrubbed before
-    the payload goes out.
+    Two distinct hazards, both of which reach the browser as an opaque error:
+
+    1. json.dumps writes bare NaN/Infinity, which are not valid JSON and make
+       JSON.parse throw. A thin chain legitimately produces NaN for RSI, ATM IV
+       or the P/C ratios.
+    2. numpy scalars (bool_, int64, float64) are not serializable at all and
+       raise a 500. They leak out of pandas comparisons all over this codebase
+       -- `a < b` on numpy floats is a numpy bool, not a Python bool -- so this
+       is caught generically here rather than at each call site.
     """
+    if isinstance(obj, np.generic):        # numpy scalar -> nearest Python type
+        obj = obj.item()
     if isinstance(obj, float):
         return None if math.isnan(obj) or math.isinf(obj) else obj
     if isinstance(obj, dict):
@@ -167,6 +177,18 @@ def api_setup(ticker: str):
         }
         if conf:
             payload["regime"] = classify_regime(prof["spot"], levels, conf)
+
+    # the chain is already being fetched here, so this is where a concrete
+    # contract can be resolved without a second round trip
+    try:
+        payload["contract"] = pick_contract(
+            ticker, setup,
+            min_dte=request.args.get("min_dte", 30, type=int),
+            moneyness=request.args.get("moneyness", "atm"),
+            spot=setup.get("price"))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.error("contract pick failed for %s: %s", ticker, exc)
+        payload["contract"] = None
 
     payload = json_safe(payload)
     with _cache_lock:
@@ -281,6 +303,138 @@ def api_backtest():
     with _cache_lock:
         _cache[key] = (time.time(), result)
     return jsonify(result)
+
+
+# --------------------------------------------------------------------------
+# Portfolio
+# --------------------------------------------------------------------------
+
+@app.route("/portfolio")
+def portfolio_page():
+    return render_template("portfolio.html")
+
+
+@app.route("/api/portfolios")
+def api_portfolios():
+    return jsonify({"portfolios": Portfolio.list_all()})
+
+
+@app.route("/api/portfolio/<name>")
+def api_portfolio(name: str):
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    # mark open positions against the latest close we can cheaply get
+    tickers = sorted({pos.ticker for pos in p.positions})
+    prices: dict[str, float] = {}
+    if tickers and request.args.get("mark", "1") != "0":
+        try:
+            raw = yf.download(tickers, period="5d", interval="1d", group_by="ticker",
+                              auto_adjust=False, progress=False, threads=True)
+            for t in tickers:
+                try:
+                    sub = raw[t] if len(tickers) > 1 else raw
+                    prices[t] = float(sub["Close"].dropna().iloc[-1])
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception as exc:  # noqa: BLE001
+            app.logger.error("mark-to-market fetch failed: %s", exc)
+    p.mark_to_market(prices)
+
+    return jsonify(json_safe({**p.to_dict(), "stats": p.stats(),
+                              "marked": sorted(prices), "unmarked": sorted(set(tickers) - set(prices))}))
+
+
+@app.route("/api/portfolio", methods=["POST"])
+def api_portfolio_create():
+    body = request.get_json(silent=True) or {}
+    try:
+        p = Portfolio.create(body.get("name", ""), float(body.get("cash", 0)),
+                             float(body.get("risk_pct", 1.0)),
+                             overwrite=bool(body.get("overwrite")))
+    except (ValueError, FileExistsError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(json_safe({**p.to_dict(), "stats": p.stats()}))
+
+
+@app.route("/api/portfolio/<name>/open", methods=["POST"])
+def api_portfolio_open(name: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    ticker = (body.get("ticker") or "").upper()
+    setup = body.get("setup") or _find_setup(ticker)
+    if not setup:
+        return jsonify({"error": f"no setup for {ticker} in the current scan"}), 404
+
+    kind = body.get("kind", "stock")
+    contract = body.get("contract")
+    if kind == "option" and not contract:
+        contract = pick_contract(ticker, setup, min_dte=int(body.get("min_dte", 30)),
+                                 moneyness=body.get("moneyness", "atm"),
+                                 spot=setup.get("price"))
+        if not contract:
+            return jsonify({"error": f"no option chain available for {ticker}"}), 400
+    try:
+        pos = p.open_from_setup(setup, kind=kind, contract=contract,
+                                qty=body.get("qty"), source=body.get("source", "scanner"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    p.save()
+    return jsonify(json_safe({"position": asdict_pos(pos), "stats": p.stats()}))
+
+
+@app.route("/api/portfolio/<name>/close", methods=["POST"])
+def api_portfolio_close(name: str):
+    body = request.get_json(silent=True) or {}
+    try:
+        p = Portfolio.load(safe_name(name))
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 404
+    try:
+        pos = p.close(body["id"], float(body["price"]), body.get("reason", "manual"))
+    except (KeyError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    p.save()
+    return jsonify(json_safe({"closed": asdict_pos(pos), "stats": p.stats()}))
+
+
+@app.route("/api/portfolio/from-backtest", methods=["POST"])
+def api_portfolio_from_backtest():
+    """Replay a backtest into a saved portfolio."""
+    body = request.get_json(silent=True) or {}
+    asof, err = _parse_asof(body.get("asof"))
+    if err or asof is None:
+        return jsonify({"error": err or "asof is required"}), 400
+    forward = min(max(int(body.get("forward", 30)), 1), 250)
+    types = [t for t in (body.get("types") or ["ote", "ma", "breakout"]) if t in SCANS]
+    try:
+        name = safe_name(body.get("name", ""))
+        cash = float(body.get("cash", 0))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    bt = json_safe(run_backtest(load_universe(), types, asof, forward,
+                                int(body.get("limit", 200))))
+    try:
+        p = from_backtest(bt, name, cash, float(body.get("risk_pct", 1.0)),
+                          kind=body.get("kind", "stock"),
+                          overwrite=bool(body.get("overwrite", True)))
+    except (ValueError, FileExistsError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(json_safe({**p.to_dict(), "stats": p.stats(),
+                              "backtest_summary": bt["summary"]}))
+
+
+def asdict_pos(pos):
+    from dataclasses import asdict as _asdict
+    return {**_asdict(pos), "cost_basis": pos.cost_basis, "multiplier": pos.multiplier}
+
 
 
 def main():

@@ -173,10 +173,37 @@ Strike defaults to the entry (`--moneyness atm`; `otm` aims halfway to T1).
 Contracts are resolved **in the drawer, not the grid** — each one needs that
 ticker's chain, and 500 of those is not a thing you can do per scan.
 
-Two honesty guards: liquidity is labelled (thin / wide / moderate / liquid), and
-if the quoted mid disagrees with the Black-Scholes model by more than 3× the
-contract is flagged as a stale quote. Cost, breakeven, the P&L estimates *and the
-position size* all rest on that price, so a junk print must not pass silently.
+**Or pick your own strike.** Switch the instrument to *option* and a chain
+ladder opens: expiry selector, calls/puts, and every strike around spot with
+bid/ask/mid, IV, delta, open interest, volume, cost per contract, and the
+modelled value at T1 and at the stop. Click a row to select it.
+
+**IV is solved from the traded mid, not read off the chain.** Yahoo's
+`impliedVolatility` field is frequently wrong on individual strikes — a real case
+published 91.7% on a contract whose own mid implies 25.6%. Every model number
+(fair value, delta, value at target and stop) is built on that input, and at
+91.7% the panel claimed *+$5,576/contract* at T1 on an $882 contract. Where a
+traded mid exists it is the better source of truth, so the vol is inverted out of
+it by bisection; strikes still using the chain's figure are marked `*`, and a
+large disagreement is called out.
+
+Two further guards: liquidity is labelled (thin / wide / moderate / liquid), and
+if the quoted mid disagrees with the model by more than 3× the contract is
+flagged. Cost, breakeven, the P&L estimates *and the position size* all rest on
+that price, so a junk print must not pass silently.
+
+### Sizing a position
+
+Three ways, chosen with **Size by**:
+
+- **risk per trade (auto)** — the default; a fixed % of equity from entry to stop.
+- **quantity** — type the exact share or contract count.
+- **$ amount** — type a dollar figure; it converts at the instrument's own price
+  and floors to whole shares/contracts.
+
+The line under the controls previews the real arithmetic before you commit —
+`3 contracts × $110.00 = $330.00 · cash available $25,000.00` — and turns red if
+the position would exceed cash or round down to nothing.
 
 ---
 

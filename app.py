@@ -25,7 +25,7 @@ from werkzeug.exceptions import HTTPException
 
 import replay as rp
 from backtest import run_backtest
-from contracts import pick_contract
+from contracts import chain_table, pick_contract
 from portfolio import Portfolio, from_backtest, safe_name
 from index_signal import INDEX_PROXY, index_signal
 from options_flow import exposure_profile, profile_payload
@@ -209,6 +209,29 @@ def _find_setup(ticker: str) -> dict | None:
     return best
 
 
+@app.route("/api/chain/<ticker>")
+def api_chain(ticker: str):
+    """The option chain around spot, for picking a strike by hand."""
+    ticker = ticker.upper()
+    expiry = request.args.get("expiry") or None
+    key = ("chain", ticker, expiry)
+    now = time.time()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < DETAIL_TTL_SECONDS:
+            return jsonify(hit[1])
+
+    setup = _find_setup(ticker)
+    table = chain_table(ticker, setup, expiry=expiry,
+                        spot=(setup or {}).get("price"))
+    if table is None:
+        return jsonify({"error": f"no option chain available for {ticker}"}), 404
+    table = json_safe(table)
+    with _cache_lock:
+        _cache[key] = (time.time(), table)
+    return jsonify(table)
+
+
 @app.route("/api/scan")
 def api_scan():
     types = [t for t in request.args.get("types", "ote,ma,breakout").split(",") if t in SCANS]
@@ -386,9 +409,38 @@ def api_portfolio_open(name: str):
     # An entry taken during a replay belongs on the cursor date, not the wall
     # clock -- otherwise it lands in the future relative to every stepped day.
     when = (p.replay or {}).get("cursor") if p.replay else None
+
+    # Sizing: an explicit quantity wins; a dollar amount is converted at the
+    # instrument's own price; otherwise fall back to risk-based sizing.
+    qty = body.get("qty")
+    notional = body.get("notional")
+    if qty in (None, "") and notional not in (None, ""):
+        try:
+            notional = float(notional)
+        except (TypeError, ValueError):
+            return jsonify({"error": f"notional must be a number, got {notional!r}"}), 400
+        if notional <= 0:
+            return jsonify({"error": "notional must be positive"}), 400
+        unit = (float(contract.get("mid") or contract.get("model_price") or 0) * 100
+                if kind == "option" else float(setup.get("entry") or setup.get("price") or 0))
+        if unit <= 0:
+            return jsonify({"error": "cannot size from a zero price"}), 400
+        qty = int(notional // unit)
+        if qty <= 0:
+            return jsonify({"error": f"${notional:,.2f} is less than one "
+                                     f"{'contract' if kind == 'option' else 'share'} "
+                                     f"at ${unit:,.2f}"}), 400
+    if qty not in (None, ""):
+        try:
+            qty = int(qty)
+        except (TypeError, ValueError):
+            return jsonify({"error": f"qty must be a whole number, got {qty!r}"}), 400
+        if qty <= 0:
+            return jsonify({"error": "qty must be positive"}), 400
+
     try:
         pos = p.open_from_setup(setup, kind=kind, contract=contract,
-                                qty=body.get("qty"), source=body.get("source", "scanner"),
+                                qty=qty, source=body.get("source", "scanner"),
                                 when=when)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

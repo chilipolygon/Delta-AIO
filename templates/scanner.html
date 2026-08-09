@@ -147,6 +147,25 @@
   .rp-ev { display:block; }
   .rp-ev b { color:var(--text-primary); }
   .enterbtn { font-size:11px; padding:3px 9px; font-weight:600; }
+  .chainwrap { max-height:330px; overflow:auto; margin-top:8px;
+               border:1px solid var(--border); border-radius:8px; }
+  table.chain { width:100%; border-collapse:collapse; font-size:11.5px; }
+  table.chain th { position:sticky; top:0; background:var(--surface-2); z-index:1;
+                   font-size:9.5px; padding:5px 7px; }
+  table.chain td { padding:4px 7px; border-bottom:1px solid var(--grid); cursor:pointer; }
+  table.chain tr:hover td { background:var(--surface-2); }
+  table.chain tr.sel td { background:var(--st-zone); color:#fff; }
+  table.chain tr.sel td .x { color:rgba(255,255,255,.75); }
+  table.chain tr.atm td:first-child { font-weight:800; }
+  table.chain td.k { font-weight:700; }
+  table.chain .itm { color:var(--text-muted); }
+  .chaintabs { display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; margin-top:4px; }
+  .chaintabs button.on { border-color:var(--st-zone); color:var(--st-zone-t); font-weight:700; }
+  .sizerow { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:4px; }
+  .previewline { font-size:11.5px; color:var(--text-secondary); margin-top:8px; }
+  .previewline b { color:var(--text-primary); font-variant-numeric:tabular-nums; }
+  .previewline.bad { color:var(--st-dead-t); }
+
   .heldtag { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
              padding:2px 6px; border-radius:5px; color:var(--st-zone-t);
              border:1px solid var(--st-zone); }
@@ -640,7 +659,8 @@ function renderDetail(d) {
   if (d.contract) {
     const k = d.contract;
     html += `<div class="panel" style="margin-top:12px">
-      <h3><span class="sw" style="background:var(--st-target)"></span>Suggested contract</h3>
+      <h3><span class="sw" style="background:var(--st-target)"></span>Suggested contract
+        <span class="x" style="font-weight:400;text-transform:none;letter-spacing:0">— or pick your own below</span></h3>
       <div class="lvl"><span class="k">Contract</span><span class="v" style="font-size:14px">${esc(k.symbol)}</span></div>
       ${lvlRow("Strike", k.strike, `${k.kind} · ${k.dte}d to ${esc(k.expiry)}`)}
       <div class="lvl"><span class="k">Quote</span><span class="v">${n2(k.bid)} / ${n2(k.ask)}</span>
@@ -648,11 +668,12 @@ function renderDetail(d) {
       <div class="lvl"><span class="k">Cost</span><span class="v">$${n2(k.cost_per_contract)}</span>
         <span class="x">per contract · breakeven ${n2(k.breakeven)}</span></div>
       <div class="lvl"><span class="k">Greeks</span><span class="v">Δ ${k.delta}</span>
-        <span class="x">IV ${k.iv ?? "—"}% · OI ${k.open_interest.toLocaleString()} · vol ${k.volume.toLocaleString()}</span></div>
+        <span class="x">IV ${k.iv ?? "—"}% (${esc(k.iv_source || "chain")}) · OI ${k.open_interest.toLocaleString()} · vol ${k.volume.toLocaleString()}</span></div>
       <div class="lvl"><span class="k">At T1</span><span class="v ${k.est_pnl_at_t1 >= 0 ? "" : ""}">$${n2(k.est_value_at_t1)}</span>
         <span class="x">${k.est_pnl_at_t1 >= 0 ? "+" : "−"}$${n2(Math.abs(k.est_pnl_at_t1))}/contract modelled</span></div>
       <div class="lvl"><span class="k">At stop</span><span class="v">$${n2(k.est_value_at_stop)}</span>
         <span class="x">${k.est_pnl_at_stop >= 0 ? "+" : "−"}$${n2(Math.abs(k.est_pnl_at_stop))}/contract modelled</span></div>
+      ${k.iv_warning ? `<div class="metrics" style="margin-top:8px;color:var(--st-wait-t)">⚠ ${esc(k.iv_warning)}</div>` : ""}
       ${k.quote_warning ? `<div class="metrics" style="margin-top:8px;color:var(--st-dead-t)">⚠ ${esc(k.quote_warning)}</div>` : ""}
       <div class="metrics" style="margin-top:8px">${esc(k.liquidity)} · ${esc(k.note)}</div>
       </div>`;
@@ -661,17 +682,39 @@ function renderDetail(d) {
   if (hasSetup) {
     html += `<div class="panel" style="margin-top:12px">
       <h3>Add to a paper portfolio</h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="sizerow">
         <div class="field"><label for="pfPick">Portfolio</label>
           <select id="pfPick" style="min-width:150px"><option value="">loading…</option></select></div>
         <div class="field"><label for="pfKind">Instrument</label>
           <select id="pfKind"><option value="stock">stock</option>
-          <option value="option" ${d.contract ? "" : "disabled"}>option${d.contract ? "" : " (no chain)"}</option></select></div>
+          <option value="option">option</option></select></div>
+        <div class="field"><label for="pfSizeMode">Size by</label>
+          <select id="pfSizeMode">
+            <option value="risk">risk per trade (auto)</option>
+            <option value="qty">quantity</option>
+            <option value="cash">$ amount</option>
+          </select></div>
+        <div class="field" id="pfQtyField" hidden><label for="pfQty"><span id="pfQtyLabel">Shares</span></label>
+          <input id="pfQty" type="number" min="1" step="1" value="100" style="width:100px"></div>
+        <div class="field" id="pfCashField" hidden><label for="pfCash">Dollars</label>
+          <input id="pfCash" type="number" min="1" step="100" value="5000" style="width:110px"></div>
         <button id="pfAdd" type="button">Add position</button>
-        <span id="pfMsg" class="metrics"></span>
       </div>
-      <div class="metrics" style="margin-top:8px">Size is set from the portfolio's risk-per-trade
-        against this setup's stop — simulation only, nothing is routed.</div>
+      <div class="previewline" id="pfPreview"></div>
+      <div id="pfChainBox" hidden>
+        <div class="chaintabs">
+          <div class="field"><label for="pfExpiry">Expiry</label>
+            <select id="pfExpiry" style="min-width:170px"></select></div>
+          <button id="pfCalls" class="on" type="button">Calls</button>
+          <button id="pfPuts" type="button">Puts</button>
+          <span class="metrics" id="pfChainMsg"></span>
+        </div>
+        <div class="chainwrap" id="pfChain"></div>
+        <div class="metrics" style="margin-top:6px">Click a strike to select it. IV is solved from
+          the traded mid where one exists — the chain's own IV field is often wrong on individual
+          strikes, and every model value here depends on it.</div>
+      </div>
+      <div class="metrics" style="margin-top:8px">Simulation only — nothing is routed.</div>
       </div>`;
   }
 
@@ -688,9 +731,95 @@ function renderDetail(d) {
   if (hasSetup) wirePortfolioAdd(s, d.contract);
 }
 
+let CHAIN = null, PICKED = null, SIDE = "calls";
+
+function chainRows() { return CHAIN ? (CHAIN[SIDE] || []) : []; }
+
+/* identity by (kind, strike, expiry): contractSymbol is occasionally blank,
+   and comparing on it made every row match the selection */
+const samePick = (a, b) => Boolean(a && b && a.kind === b.kind &&
+  a.strike === b.strike && (a.expiry || "") === (b.expiry || ""));
+const contractLabel = c => c ? (c.symbol ||
+  `${esc(c.ticker || "")} ${esc(c.expiry || "")} ${c.kind === "put" ? "P" : "C"}${n2(c.strike)}`) : "";
+
+function renderChain() {
+  const rows = chainRows();
+  if (!rows.length) { $("#pfChain").innerHTML = `<p class="metrics" style="padding:10px">No strikes in range.</p>`; return; }
+  const spot = CHAIN.spot;
+  // the strike nearest spot anchors the ladder, the way a chain window opens centred
+  const atm = rows.reduce((b, r, i) => Math.abs(r.strike - spot) < Math.abs(rows[b].strike - spot) ? i : b, 0);
+  $("#pfChain").innerHTML = `<table class="chain">
+    <thead><tr><th style="text-align:left">Strike</th><th>Bid</th><th>Ask</th><th>Mid</th>
+      <th>IV</th><th>Δ</th><th>OI</th><th>Vol</th><th>Cost</th><th>At T1</th><th>At stop</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr data-i="${i}" class="${i === atm ? "atm" : ""} ${samePick(PICKED, r) ? "sel" : ""}">
+      <td class="k ${r.itm ? "itm" : ""}">${n2(r.strike)}${r.itm ? " <span class='x'>itm</span>" : ""}</td>
+      <td>${n2(r.bid)}</td><td>${n2(r.ask)}</td><td>${n2(r.mid)}</td>
+      <td>${r.iv}<span class="x">${r.iv_source === "mid" ? "" : "*"}</span></td>
+      <td>${r.delta}</td><td>${r.open_interest.toLocaleString()}</td><td>${r.volume.toLocaleString()}</td>
+      <td>$${n2(r.cost_per_contract)}</td><td>$${n2(r.at_t1)}</td><td>$${n2(r.at_stop)}</td>
+    </tr>`).join("")}</tbody></table>`;
+  $("#pfChain").querySelectorAll("tr[data-i]").forEach(tr => {
+    tr.onclick = () => { PICKED = rows[parseInt(tr.dataset.i, 10)]; renderChain(); updatePreview(); };
+  });
+  $("#pfChainMsg").innerHTML = `spot ${n2(spot)} · ${CHAIN.dte}d · IV marked <b>*</b> comes from the
+    chain field rather than a traded price`;
+  const row = $("#pfChain").querySelector("tr.atm");
+  if (row && !PICKED) row.scrollIntoView({ block: "center" });
+}
+
+async function loadChain(ticker, expiry) {
+  $("#pfChainMsg").textContent = "loading chain…";
+  try {
+    const q = expiry ? `?expiry=${encodeURIComponent(expiry)}` : "";
+    CHAIN = await fetchJson(`/api/chain/${encodeURIComponent(ticker)}${q}`);
+    $("#pfExpiry").innerHTML = CHAIN.expiries.map(e =>
+      `<option value="${esc(e.date)}" ${e.date === CHAIN.expiry ? "selected" : ""}>${esc(e.date)} · ${e.dte}d</option>`).join("");
+    if (!PICKED || PICKED.expiry !== CHAIN.expiry) PICKED = null;
+    renderChain();
+    updatePreview();
+  } catch (e) {
+    $("#pfChain").innerHTML = `<p class="metrics" style="padding:10px">Could not load the chain: ${esc(e.message)}</p>`;
+  }
+}
+
+/* what the position would actually cost, before committing to it */
+function updatePreview(setup) {
+  const el = $("#pfPreview");
+  if (!el) return;
+  const kind = $("#pfKind").value, mode = $("#pfSizeMode").value;
+  const s = setup || window.__pfSetup;
+  const unit = kind === "option"
+    ? (PICKED ? PICKED.cost_per_contract : (window.__pfContract ? window.__pfContract.cost_per_contract : 0))
+    : Number(s && (s.entry || s.price)) || 0;
+  const what = kind === "option" ? "contract" : "share";
+
+  if (kind === "option" && !PICKED && !window.__pfContract) {
+    el.className = "previewline"; el.textContent = "Pick a strike from the chain below."; return;
+  }
+  if (mode === "risk") {
+    el.className = "previewline";
+    el.innerHTML = `Sized from the portfolio's risk-per-trade against the
+      ${s ? n2(s.stop) : "—"} stop. One ${what} costs <b>$${n2(unit)}</b>.`;
+    return;
+  }
+  let qty = 0;
+  if (mode === "qty") qty = parseInt($("#pfQty").value, 10) || 0;
+  else qty = unit > 0 ? Math.floor((parseFloat($("#pfCash").value) || 0) / unit) : 0;
+  const cost = qty * unit;
+  const cash = window.__pfCash;
+  const over = cash != null && cost > cash;
+  el.className = "previewline" + (over || qty <= 0 ? " bad" : "");
+  el.innerHTML = qty <= 0
+    ? `That is less than one ${what} at <b>$${n2(unit)}</b>.`
+    : `<b>${qty}</b> ${what}${qty === 1 ? "" : "s"} × <b>$${n2(unit)}</b> =
+       <b>$${n2(cost)}</b>${cash != null ? ` · cash available <b>$${n2(cash)}</b>` : ""}` +
+      (over ? " — over budget" : "");
+}
+
 async function wirePortfolioAdd(setup, contract) {
-  const sel = $("#pfPick"), msg = $("#pfMsg"), btn = $("#pfAdd");
+  const sel = $("#pfPick"), btn = $("#pfAdd");
   if (!sel) return;
+  window.__pfSetup = setup; window.__pfContract = contract; PICKED = null; CHAIN = null;
   try {
     const j = await (await fetch("/api/portfolios")).json();
     const names = (j.portfolios || []).map(p => p.name);
@@ -699,24 +828,60 @@ async function wirePortfolioAdd(setup, contract) {
       : `<option value="">none — create one first</option>`;
     const last = localStorage.getItem("pf");
     if (last && names.includes(last)) sel.value = last;
+    const me = (j.portfolios || []).find(p => p.name === sel.value);
+    window.__pfCash = me ? me.cash : null;
   } catch (_) { sel.innerHTML = `<option value="">unavailable</option>`; }
 
-  btn.onclick = async () => {
-    if (!sel.value) { msg.textContent = "Create a portfolio first."; return; }
-    btn.disabled = true; msg.textContent = "adding…";
+  const syncMode = () => {
+    const mode = $("#pfSizeMode").value, kind = $("#pfKind").value;
+    $("#pfQtyField").hidden = mode !== "qty";
+    $("#pfCashField").hidden = mode !== "cash";
+    $("#pfQtyLabel").textContent = kind === "option" ? "Contracts" : "Shares";
+    $("#pfChainBox").hidden = kind !== "option";
+    if (kind === "option" && !CHAIN) loadChain(setup.ticker, contract ? contract.expiry : null);
+    updatePreview(setup);
+  };
+  ["#pfKind", "#pfSizeMode"].forEach(x => { $(x).onchange = syncMode; });
+  ["#pfQty", "#pfCash"].forEach(x => { $(x).oninput = () => updatePreview(setup); });
+  $("#pfExpiry").onchange = () => loadChain(setup.ticker, $("#pfExpiry").value);
+  $("#pfCalls").onclick = () => { SIDE = "calls"; PICKED = null; $("#pfCalls").classList.add("on"); $("#pfPuts").classList.remove("on"); renderChain(); updatePreview(setup); };
+  $("#pfPuts").onclick = () => { SIDE = "puts"; PICKED = null; $("#pfPuts").classList.add("on"); $("#pfCalls").classList.remove("on"); renderChain(); updatePreview(setup); };
+  sel.onchange = async () => {
     try {
-      const res = await fetch(`/api/portfolio/${encodeURIComponent(sel.value)}/open`, {
+      const j = await (await fetch("/api/portfolios")).json();
+      const me = (j.portfolios || []).find(p => p.name === sel.value);
+      window.__pfCash = me ? me.cash : null;
+    } catch (_) { window.__pfCash = null; }
+    updatePreview(setup);
+  };
+  syncMode();
+
+  btn.onclick = async () => {
+    const msg = $("#pfPreview");
+    if (!sel.value) { msg.className = "previewline bad"; msg.textContent = "Create a portfolio first."; return; }
+    const kind = $("#pfKind").value, mode = $("#pfSizeMode").value;
+    const chosen = kind === "option" ? (PICKED || contract) : null;
+    if (kind === "option" && !chosen) {
+      msg.className = "previewline bad"; msg.textContent = "Pick a strike first."; return;
+    }
+    const body = { ticker: setup.ticker, setup, kind, contract: chosen };
+    if (mode === "qty") body.qty = parseInt($("#pfQty").value, 10);
+    else if (mode === "cash") body.notional = parseFloat($("#pfCash").value);
+
+    btn.disabled = true;
+    try {
+      const j = await fetchJson(`/api/portfolio/${encodeURIComponent(sel.value)}/open`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker: setup.ticker, setup, kind: $("#pfKind").value,
-                               contract: $("#pfKind").value === "option" ? contract : null }),
+        body: JSON.stringify(body),
       });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
       const p = j.position;
-      msg.innerHTML = `added <b>${p.qty}</b> ${esc(p.kind === "option" ? "contract(s)" : "share(s)")}
-        — equity now $${n2(j.stats.equity)}`;
+      window.__pfCash = j.stats.cash;
+      msg.className = "previewline";
+      msg.innerHTML = `Added <b>${p.qty}</b> ${esc(p.kind === "option" ? "contract" : "share")}${p.qty === 1 ? "" : "s"}
+        ${chosen ? `of <b>${esc(contractLabel(chosen))}</b> ` : ""}at <b>$${n2(p.entry_price)}</b>
+        — cost <b>$${n2(p.cost_basis)}</b>, cash now <b>$${n2(j.stats.cash)}</b>.`;
     } catch (e) {
-      msg.textContent = e.message;
+      msg.className = "previewline bad"; msg.textContent = e.message;
     } finally { btn.disabled = false; }
   };
 }

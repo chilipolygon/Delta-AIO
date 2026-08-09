@@ -76,6 +76,59 @@ direction bet and not advice.** GEX/VEX assume the standard dealer convention
 (long calls, short puts), which is a convention rather than observed positioning,
 and open interest updates once daily pre-open.
 
+### SPX / index signal
+
+A panel at the top of `/scanner` runs the same three rules on the index itself
+and layers dealer positioning on top. Yahoo publishes no chain for `^SPX` /
+`^GSPC`, so positioning is read from the proxy ETF (SPY for SPX, QQQ for NDX)
+and **strikes** are converted to index points with the live ratio. Dollar
+exposures are *not* converted — they are proxy-chain dollars and have no
+meaningful index-point equivalent, so they stay labelled as the proxy's.
+
+```
+python3 index_signal.py                      # SPX via SPY
+python3 index_signal.py --index ^NDX --proxy QQQ
+python3 index_signal.py --asof 2026-03-16    # price/tape only — see below
+```
+
+Click the panel for the same detail drawer the stock cards open.
+
+### Backtesting from a past date
+
+Switch the scanner's **Mode** to *as of date · backtest*, pick a date and a
+forward window. Every rule then sees only bars up to the cutoff, and the bars
+after it are used to score what happened — never to generate the signal.
+
+```
+python3 backtest.py --asof 2026-03-16 --forward 30
+python3 backtest.py --asof 2026-01-05 --forward 45 --types ote --json bt.json
+```
+
+Each signal is scored honestly:
+
+- A fill requires price to actually trade **into the entry zone** after the
+  signal. One that never did is reported `NO FILL`, not counted as a win or loss.
+- When a single daily bar's range spans **both** the stop and a target, the stop
+  is taken. Intrabar order is unknowable from daily data, and the pessimistic
+  reading is the one that doesn't flatter the results.
+- Outcomes carry R multiple, bars held, and MFE/MAE in R.
+
+> **What a backtest here cannot cover.** Yahoo serves historical price bars but
+> **only the current option chain**. So the price rules, the confluence and the
+> outcomes are genuinely historical, while **GEX/VEX and the regime verdict are
+> not backtestable** from this data source. Rather than pin today's dealer book
+> onto a past bar — which would look like a result and be a fiction — the as-of
+> paths omit positioning entirely and say so.
+
+### Auto-refresh during the session
+
+In live mode an auto-refresh interval (1/5/15 min) re-runs the scan, and the
+header shows the session state — `open`, `premarket`, `afterhours`, `weekend`.
+Out of hours the refresh skips the expensive universe scan and only keeps the
+index panel current, since the tape isn't moving. Auto-refresh is disabled in
+as-of mode, where the result cannot change. *Market holidays are not tracked* —
+the check is weekday and clock only.
+
 ### Setup status
 
 Every hit is then classified the way a hand-kept tracker reads it:

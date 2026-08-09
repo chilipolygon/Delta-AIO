@@ -134,6 +134,38 @@
   .legend .sw { width:10px; height:10px; border-radius:3px; flex:none; }
   .caveat { font-size:11.5px; color:var(--text-muted); margin-top:22px; }
 
+  .idxpanel { display:flex; gap:18px; flex-wrap:wrap; align-items:center;
+              padding:13px 16px; margin:12px 0 0; background:var(--surface-1);
+              border:1px solid var(--border); border-radius:10px; cursor:pointer; }
+  .idxpanel:hover { border-color:var(--baseline); }
+  .idxpanel[hidden] { display:none; }
+  .idx-name { font-size:15px; font-weight:700; }
+  .idx-spot { font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .idx-v { font-size:15px; font-weight:800; }
+  .idx-lv { font-size:11.5px; color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+  .idx-lv b { color:var(--text-primary); }
+
+  .mkt { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+         display:inline-flex; align-items:center; gap:5px; }
+  .mkt .d { width:8px; height:8px; border-radius:50%; }
+
+  .btbar { padding:12px 15px; margin:12px 0 0; border-radius:10px;
+           background:var(--surface-1); border:1px solid var(--border);
+           display:flex; gap:22px; flex-wrap:wrap; align-items:baseline; }
+  .btbar[hidden] { display:none; }
+  .btstat { font-size:12px; color:var(--text-muted); }
+  .btstat b { display:block; font-size:19px; font-weight:700; color:var(--text-primary);
+              font-variant-numeric:tabular-nums; }
+
+  .oc { font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+        padding:2px 7px; border-radius:5px; }
+  /* tinted + outlined rather than solid: white on these fills is ~3:1, under
+     the 4.5:1 small-text floor, and the outcome text has to stay readable */
+  .oc-win { color:var(--st-target-t); border:1px solid var(--st-target); background:transparent; }
+  .oc-loss { color:var(--st-dead-t); border:1px solid var(--st-dead); background:transparent; }
+  .oc-open { background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); }
+  .oc-nofill { background:transparent; color:var(--text-muted); border:1px dashed var(--border); }
+
   .card { cursor:pointer; transition:border-color .12s; }
   body.static .card { cursor:default; }
   .card:hover { border-color:var(--baseline); }
@@ -200,14 +232,33 @@
   <header class="top">
     <h1>Setup scanner</h1>
     <span class="muted" id="scanMeta"></span>
+    <span class="mkt" id="mktChip"></span>
     <span class="grow"></span>
     <a class="nav" id="navHome" href="/">Gamma dashboard →</a>
     <button id="themeBtn" type="button">Theme</button>
   </header>
 
+  <div class="idxpanel" id="idxPanel" hidden tabindex="0" role="button"
+       aria-label="Open index signal detail"></div>
+  <div class="btbar" id="btBar" hidden></div>
   <div class="summary" id="summary"></div>
 
   <div class="filters">
+    <div class="field">
+      <label for="fMode">Mode</label>
+      <select id="fMode">
+        <option value="live">live</option>
+        <option value="asof">as of date · backtest</option>
+      </select>
+    </div>
+    <div class="field asof-only" hidden>
+      <label for="fAsof">As of</label>
+      <input id="fAsof" type="date" style="width:150px">
+    </div>
+    <div class="field asof-only" hidden>
+      <label for="fForward">Forward bars</label>
+      <input id="fForward" type="number" min="1" max="250" value="30" style="width:96px">
+    </div>
     <div class="field">
       <label for="fType">Setup</label>
       <select id="fType">
@@ -250,9 +301,18 @@
       </select>
     </div>
     <span class="grow"></span>
+    <div class="field live-only">
+      <label for="fAuto">Auto-refresh</label>
+      <select id="fAuto">
+        <option value="0">off</option>
+        <option value="60">1 min</option>
+        <option value="300" selected>5 min</option>
+        <option value="900">15 min</option>
+      </select>
+    </div>
     <div class="field" id="liveOnly">
       <label for="fLimit">Scan</label>
-      <button id="rescan" type="button">Re-run scan</button>
+      <button id="rescan" type="button">Run</button>
     </div>
   </div>
 
@@ -359,13 +419,14 @@ function card(s) {
     <div class="chead"><span class="tk">${esc(s.ticker)}</span>
       <span class="nm">${esc(s.name)}</span><span class="px">${n2(s.price)}</span></div>
     <div class="fromrow"><span class="tag">${TYPE_LABEL[s.setup_type] || s.setup_type}</span>
-      <span class="pct">${sgn(s.pct_from_entry)}% from entry</span></div>
+      ${s.result ? outcomeBadge(s.result) : `<span class="pct">${sgn(s.pct_from_entry)}% from entry</span>`}</div>
     <div class="headline"><span class="dot"></span><span class="htxt">${esc(s.headline)}</span></div>
     <div class="note">${esc(s.note)}</div>
     <div class="metrics">risk ${s.risk_pct.toFixed(1)}% · reward to ${s.next_target_label} ${s.reward_pct.toFixed(1)}%
       · R:R ${s.rr.toFixed(1)}:1</div>
     <div class="metrics">at entry ${n2(s.entry)} · risk ${s.entry_risk_pct.toFixed(1)}% · R:R ${s.entry_rr.toFixed(1)}:1 · score ${s.score}</div>
     <div class="volrow">${sparkline(s.vol_bars)}<span>${s.vol_ratio.toFixed(2)}× vol ${esc(s.vol_trend)}</span></div>
+    ${s.result ? outcomeLine(s.result) : ""}
     ${ladder(s)}
   </article>`;
 }
@@ -412,9 +473,9 @@ function gexLadder(opt, setup) {
   }
 
   // trade-ladder rungs in the right margin
-  const rungs = [{ lab: "OTE", v: setup.entry, c: css("--text-primary") }];
+  const rungs = setup.entry == null ? [] : [{ lab: "OTE", v: setup.entry, c: css("--text-primary") }];
   setup.targets.slice(0, 3).forEach((t, i) => rungs.push({ lab: `TP${i + 1}`, v: t, c: css("--st-dead-t") }));
-  rungs.push({ lab: "STOP", v: setup.stop, c: css("--st-dead") });
+  if (setup.stop != null) rungs.push({ lab: "STOP", v: setup.stop, c: css("--st-dead") });
   rungs.forEach(r => {
     if (r.v == null || r.v < lo || r.v > hi) return;
     const y = yOf(r.v);
@@ -446,7 +507,12 @@ function sigLine(label, part) {
 }
 
 function renderDetail(d) {
-  const s = d.setup, o = d.options, r = d.regime, c = s.confluence || {};
+  const o = d.options, r = d.regime;
+  // the index panel can open with no rule firing; everything else still renders
+  const hasSetup = Boolean(d.setup && d.setup.targets && d.setup.targets.length);
+  const s = d.setup || { ticker: d.ticker || "—", name: "", price: (o ? o.spot : 0),
+                         targets: [], confluence: d.fallbackConfluence || {} };
+  const c = s.confluence || d.fallbackConfluence || {};
   const vcls = r ? (r.lean === "bull" ? "v-bull" : r.lean === "bear" ? "v-bear" : "v-neutral") : "v-neutral";
   const convColor = !r ? css("--text-muted")
     : r.conviction >= 70 ? css("--st-target") : r.conviction >= 45 ? css("--st-wait") : css("--text-muted");
@@ -490,11 +556,17 @@ function renderDetail(d) {
       <div class="lvl"><span class="k">ATM IV</span><span class="v">${o.atm_iv != null ? o.atm_iv + "%" : "—"}</span><span class="x">${c.vol ? esc(c.vol.regime + " realized") : ""}</span></div>
       </div>`;
   }
-  html += `<div class="panel"><h3><span class="sw" style="background:var(--st-dead)"></span>Trade ladder · ${esc(s.setup_type)}</h3>
+  if (hasSetup) {
+    html += `<div class="panel"><h3><span class="sw" style="background:var(--st-dead)"></span>Trade ladder · ${esc(s.setup_type)}</h3>
       ${lvlRow("◆ OTE", s.entry, `zone ${n2(s.entry_lo)}–${n2(s.entry_hi)}`)}
       ${s.targets.map((t, i) => lvlRow(`▸ TP${i + 1}`, t, i === 0 ? `R:R ${s.entry_rr.toFixed(1)}:1 at entry` : "")).join("")}
       ${lvlRow("✕ Stop", s.stop, `risk ${s.entry_risk_pct.toFixed(1)}% from entry`)}
       </div>`;
+  } else {
+    html += `<div class="panel"><h3>Trade ladder</h3>
+      <div class="muted" style="font-size:12.5px">No scan rule is firing here right now — the
+      levels and regime above still stand, there is just no entry/stop/target to draw.</div></div>`;
+  }
   html += `</div>`;
 
   html += `<div class="panel" style="margin-top:12px"><h3>Tape · MACD · RSI · 200 SMA · volume · trend</h3>
@@ -507,7 +579,7 @@ function renderDetail(d) {
 
   if (o) {
     html += `<div class="panel" style="margin-top:12px"><h3>Gamma exposure by strike</h3>
-      ${gexLadder(o, s)}</div>`;
+      ${gexLadder(o, hasSetup ? s : { entry: null, stop: null, targets: [] })}</div>`;
     html += `<details class="tv" open><summary>Table view — GEX/VEX by strike</summary><div class="tv-wrap"><table>
       <thead><tr><th>Strike</th><th>GEX</th><th>VEX</th><th>Call OI</th><th>Put OI</th></tr></thead><tbody>
       ${o.profile.strikes.map((k, i) => `<tr><td>${n2(k)}</td><td>${money(o.profile.gex[i])}</td>
@@ -561,6 +633,126 @@ async function openDetail(ticker) {
 $("#scrim").onclick = closeDrawer;
 addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
 
+
+/* ===================== backtest outcome rendering ===================== */
+function outcomeBadge(r) {
+  if (!r.filled) return `<span class="oc oc-nofill">no fill</span>`;
+  const rm = r.r_multiple;
+  const cls = rm == null ? "oc-open" : rm > 0 ? "oc-win" : "oc-loss";
+  return `<span class="oc ${cls}">${esc(r.outcome)}${rm == null ? "" : ` · ${rm > 0 ? "+" : ""}${rm.toFixed(2)}R`}</span>`;
+}
+function outcomeLine(r) {
+  if (!r.filled)
+    return `<div class="metrics">never traded into the entry zone in ${r.forward_bars} bars</div>`;
+  return `<div class="metrics">filled bar ${r.fill_bar} · held ${r.bars_held} bars ·
+    exit ${n2(r.exit)} · MFE ${r.mfe_r}R / MAE ${r.mae_r}R</div>`;
+}
+
+/* ===================== index signal panel ===================== */
+let INDEX = null;
+
+function drawIndex() {
+  const el = $("#idxPanel");
+  if (!INDEX || INDEX.error) { el.hidden = true; return; }
+  const r = INDEX.regime, o = INDEX.options;
+  const lv = o ? o.index_levels : null;
+  const vcol = !r ? css("--text-muted")
+    : r.lean === "bull" ? css("--st-target-t") : r.lean === "bear" ? css("--st-dead-t") : css("--text-primary");
+
+  let levels = "";
+  if (lv) {
+    const bits = [];
+    if (lv.flip != null) bits.push(`flip <b>${n2(lv.flip)}</b>`);
+    if (lv.pin) bits.push(`pin <b>${n2(lv.pin.strike)}</b>`);
+    if (lv.fuel_down) bits.push(`fuel↓ <b>${n2(lv.fuel_down.strike)}</b>`);
+    if (lv.fuel_up) bits.push(`fuel↑ <b>${n2(lv.fuel_up.strike)}</b>`);
+    levels = `<span class="idx-lv">${bits.join(" · ")}</span>`;
+  }
+  const c = INDEX.confluence || {};
+  el.innerHTML = `
+    <span class="idx-name">${esc(INDEX.index)}</span>
+    <span class="idx-spot">${n2(INDEX.spot)}</span>
+    ${r ? `<span class="idx-v" style="color:${vcol}">${esc(r.verdict)}</span>
+           <span class="idx-lv">${esc(r.regime)} · conviction <b>${r.conviction}</b>/100</span>` : ""}
+    ${levels}
+    <span class="idx-lv">bias <b>${c.bias >= 0 ? "+" : ""}${c.bias ?? "—"}</b> ·
+      ${INDEX.setups.length} rule hit${INDEX.setups.length === 1 ? "" : "s"}</span>
+    ${INDEX.options_error ? `<span class="idx-lv" style="color:var(--st-wait-t)">${esc(INDEX.options_error.slice(0, 90))}…</span>` : ""}
+    <span class="grow"></span><span class="idx-lv">bar ${esc(INDEX.as_of_bar)} · details →</span>`;
+  el.hidden = false;
+}
+
+async function loadIndex() {
+  const q = new URLSearchParams({ index: "^GSPC" });
+  const asof = asofParam();
+  if (asof) q.set("asof", asof);
+  try {
+    const res = await fetch("/api/index?" + q);
+    const body = await res.text();
+    let j; try { j = JSON.parse(body); } catch { return; }
+    INDEX = res.ok ? j : null;
+    drawIndex();
+    if (j.market) drawMarket(j.market);
+  } catch (_) { /* the scan surfaces connectivity errors */ }
+}
+
+function openIndexDetail() {
+  if (!INDEX || INDEX.error) return;
+  const best = INDEX.setups && INDEX.setups.length
+    ? { ...INDEX.setups[0], confluence: INDEX.confluence,
+        name: INDEX.name, ticker: INDEX.index, price: INDEX.spot }
+    : null;
+  $("#drawer").hidden = false; $("#scrim").hidden = false;
+  document.body.style.overflow = "hidden";
+  renderDetail({ setup: best, ticker: INDEX.index, options: INDEX.options,
+                 regime: INDEX.regime, options_error: INDEX.options_error,
+                 fallbackConfluence: INDEX.confluence });
+}
+$("#idxPanel").onclick = openIndexDetail;
+$("#idxPanel").onkeydown = e => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openIndexDetail(); }
+};
+
+/* ===================== market status ===================== */
+function drawMarket(m) {
+  const col = m.state === "open" ? css("--st-target")
+    : m.state === "premarket" || m.state === "afterhours" ? css("--st-wait") : css("--text-muted");
+  $("#mktChip").innerHTML = `<span class="d" style="background:${col}"></span>${esc(m.state)}`;
+  $("#mktChip").title = `${m.now} · ${m.note}`;
+  MARKET = m;
+}
+let MARKET = null;
+
+/* ===================== mode ===================== */
+const isAsof = () => $("#fMode").value === "asof";
+const asofParam = () => (isAsof() && $("#fAsof").value) ? $("#fAsof").value : "";
+
+function applyMode() {
+  const asof = isAsof();
+  document.querySelectorAll(".asof-only").forEach(e => { e.hidden = !asof; });
+  document.querySelectorAll(".live-only").forEach(e => { e.hidden = asof; });
+  $("#rescan").textContent = asof ? "Run backtest" : "Run";
+  arm();
+}
+
+/* ===================== backtest summary ===================== */
+function drawBacktestBar(bt) {
+  const el = $("#btBar");
+  if (!bt) { el.hidden = true; return; }
+  const su = bt.summary;
+  const stat = (k, v) => `<span class="btstat"><b>${v}</b>${k}</span>`;
+  el.innerHTML =
+    stat("signals", su.signals) +
+    stat("filled", `${su.filled} (${su.fill_rate}%)`) +
+    stat("win rate", `${su.win_rate}%`) +
+    stat("avg R", su.avg_r) +
+    stat("total R", su.total_r) +
+    stat("stopped", su.stopped) +
+    stat("all targets", su.all_targets) +
+    `<span class="grow"></span><span class="btstat" style="max-width:520px">${esc(bt.note)}</span>`;
+  el.hidden = false;
+}
+
 function visible() {
   const ty = $("#fType").value, st = $("#fStatus").value;
   const minRR = parseFloat($("#fMinRR").value) || 0;
@@ -592,11 +784,14 @@ function draw() {
   const best = rows.reduce((b, s) => (!b || s.pct_from_entry > b.pct_from_entry ? s : b), null);
   const worst = rows.reduce((b, s) => (!b || s.pct_from_entry < b.pct_from_entry ? s : b), null);
 
+  // In backtest mode this line describes where price sat RELATIVE TO ENTRY when
+  // the signal fired -- not wins and losses. The outcome bar above carries those.
+  const at = DATA.asof ? ` at the ${DATA.asof} signal` : "";
   $("#summary").innerHTML = rows.length
-    ? `From entry: <b>${sgn(avg)}%</b> avg across <b>${rows.length}</b> setups ·
-       <span class="up">${up} up</span> / <span class="down">${rows.length - up} down</span>
-       · best ${best.ticker} <span class="up">${sgn(best.pct_from_entry)}%</span>
-       · worst ${worst.ticker} <span class="down">${sgn(worst.pct_from_entry)}%</span>`
+    ? `Price vs entry${at}: <b>${sgn(avg)}%</b> avg across <b>${rows.length}</b> setups ·
+       <span class="up">${up} above</span> / <span class="down">${rows.length - up} below</span>
+       · widest ${best.ticker} <span class="up">${sgn(best.pct_from_entry)}%</span>
+       · ${worst.ticker} <span class="down">${sgn(worst.pct_from_entry)}%</span>`
     : "No setups match these filters.";
 
   $("#scanMeta").textContent =
@@ -621,26 +816,79 @@ function draw() {
   $("#tvBox").hidden = rows.length === 0;
 }
 
+async function fetchJson(url) {
+  const r = await fetch(url);
+  const body = await r.text();
+  let j;
+  try { j = JSON.parse(body); }
+  catch { throw new Error(`HTTP ${r.status} returned ${r.headers.get("content-type") || "unknown"} instead of JSON — ${body.slice(0, 120).replace(/\s+/g, " ")}`); }
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
 async function runScan() {
+  const asof = asofParam();
+  if (isAsof() && !asof) {
+    $("#err").textContent = "Pick an as-of date to run a backtest.";
+    $("#err").hidden = false;
+    return;
+  }
   $("#err").hidden = true;
   $("#loading").hidden = false;
-  $("#loading").textContent = "Scanning the universe — this pulls a year of bars for ~500 names and takes a minute…";
+  $("#loading").textContent = asof
+    ? `Running the rules as of ${asof} and scoring the next ${$("#fForward").value} bars…`
+    : "Scanning the universe — this pulls a year of bars for ~500 names and takes a minute…";
+  $("#content") && $("#content").classList.add("loading");
+
   try {
-    const r = await fetch("/api/scan");
-    const body = await r.text();
-    let j;
-    try { j = JSON.parse(body); }
-    catch { throw new Error(`HTTP ${r.status} returned ${r.headers.get("content-type") || "unknown"} instead of JSON — ${body.slice(0, 120).replace(/\s+/g, " ")}`); }
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    DATA = j;
+    if (asof) {
+      const q = new URLSearchParams({ asof, forward: $("#fForward").value || "30" });
+      const bt = await fetchJson("/api/backtest?" + q);
+      // the backtest already ran the scan; reuse its setups and attach outcomes
+      DATA = {
+        generated_at: bt.generated_at, asof: bt.asof, scanned: bt.scanned,
+        universe_size: bt.universe_size, types: bt.types,
+        setups: bt.rows.map(r => ({ ...r.setup, result: r.result })),
+        summary: { count: bt.rows.length },
+      };
+      drawBacktestBar(bt);
+    } else {
+      DATA = await fetchJson("/api/scan");
+      drawBacktestBar(null);
+      if (DATA.market) drawMarket(DATA.market);
+    }
     draw();
   } catch (e) {
-    $("#err").textContent = `Scan failed: ${e.message}`;
+    $("#err").textContent = `${isAsof() ? "Backtest" : "Scan"} failed: ${e.message}`;
     $("#err").hidden = false;
-  } finally { $("#loading").hidden = true; }
+  } finally {
+    $("#loading").hidden = true;
+    $("#content") && $("#content").classList.remove("loading");
+  }
 }
 
 ["#fType", "#fStatus", "#fSort", "#fMinRR", "#fDedupe"].forEach(s => { $(s).oninput = draw; });
+
+let timer = null;
+function arm() {
+  clearInterval(timer);
+  timer = null;
+  // a historical result cannot change, so auto-refresh is live-mode only
+  if (isAsof()) return;
+  const secs = parseInt($("#fAuto").value, 10);
+  if (!secs) return;
+  timer = setInterval(async () => {
+    await loadIndex();                       // cheap: one chain, keeps the chip fresh
+    // out of hours the tape is not moving; skip the expensive universe scan
+    if (MARKET && !MARKET.is_open) return;
+    runScan();
+  }, secs * 1000);
+}
+
+$("#fMode").onchange = () => { applyMode(); drawBacktestBar(null); };
+$("#fAuto").onchange = arm;
+$("#fAsof").onchange = () => { if (isAsof()) { loadIndex(); runScan(); } };
+$("#fForward").onchange = () => { if (isAsof() && $("#fAsof").value) runScan(); };
 
 const seed = $("#embedded").textContent.trim();
 const STATIC = Boolean(seed && seed !== "null");
@@ -650,10 +898,19 @@ if (STATIC) {                           // static export: data is baked in
   $("#liveOnly").style.display = "none";
   $("#navHome").style.display = "none";   // a static export has no server to link to
   document.body.classList.add("static");
+  document.querySelectorAll(".asof-only, .live-only").forEach(e => { e.hidden = true; });
+  $("#fMode").parentElement.hidden = true;
   draw();
 } else {
   $("#rescan").onclick = runScan;
+  // default the date picker to ~3 months back so the field is never empty
+  const d = new Date(Date.now() - 90 * 864e5);
+  $("#fAsof").value = d.toISOString().slice(0, 10);
+  $("#fAsof").max = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  applyMode();
+  loadIndex();
   runScan();
+  arm();
 }
 </script>
 </body>

@@ -27,7 +27,7 @@ import json
 import math
 import sys
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -422,15 +422,31 @@ SCANS = {"ote": scan_ote, "ma": scan_ma_pullback, "breakout": scan_breakout}
 # Driver
 # --------------------------------------------------------------------------
 
-def fetch_history(tickers: list[str], period: str = "1y", chunk: int = 100) -> dict[str, pd.DataFrame]:
-    """Batch-download daily bars, tolerating individual failures."""
+def fetch_history(tickers: list[str], period: str = "1y", chunk: int = 100,
+                  asof: date | None = None, lookback_days: int = 500,
+                  forward_days: int = 0) -> dict[str, pd.DataFrame]:
+    """Batch-download daily bars, tolerating individual failures.
+
+    With `asof` set the window is anchored on that date instead of today, and
+    `forward_days` of bars PAST it are fetched too -- the scan only ever sees
+    bars up to the cutoff, while the later bars are what outcomes are scored
+    against. Splitting happens in split_asof(), never here.
+    """
+    kwargs: dict = {"interval": "1d", "group_by": "ticker",
+                    "auto_adjust": False, "progress": False, "threads": True}
+    if asof is None:
+        kwargs["period"] = period
+    else:
+        kwargs["start"] = (asof - timedelta(days=lookback_days)).isoformat()
+        # +5 days of slack so the last forward bar is not clipped by a weekend
+        kwargs["end"] = (asof + timedelta(days=forward_days + 5)).isoformat()
+
     frames: dict[str, pd.DataFrame] = {}
     for i in range(0, len(tickers), chunk):
         batch = tickers[i: i + chunk]
         print(f"  fetching {i + 1}-{i + len(batch)} of {len(tickers)}…", file=sys.stderr)
         try:
-            raw = yf.download(batch, period=period, interval="1d", group_by="ticker",
-                              auto_adjust=False, progress=False, threads=True)
+            raw = yf.download(batch, **kwargs)
         except Exception as exc:  # noqa: BLE001
             print(f"  ! batch failed: {exc}", file=sys.stderr)
             continue
@@ -445,12 +461,33 @@ def fetch_history(tickers: list[str], period: str = "1y", chunk: int = 100) -> d
     return frames
 
 
+def split_asof(df: pd.DataFrame, asof: date | None):
+    """(bars the scan may see, bars after the cutoff used to score outcomes)."""
+    if asof is None:
+        return df, df.iloc[0:0]
+    idx = pd.Index([ts.date() for ts in df.index])
+    return df[idx <= asof], df[idx > asof]
+
+
 def scan_universe(universe: dict[str, str], types: list[str], limit: int = 60,
-                  period: str = "1y", min_rr: float = 0.9) -> dict:
-    frames = fetch_history(list(universe), period=period)
+                  period: str = "1y", min_rr: float = 0.9,
+                  asof: date | None = None, forward_days: int = 0,
+                  frames: dict[str, pd.DataFrame] | None = None,
+                  futures_out: dict[str, pd.DataFrame] | None = None) -> dict:
+    """Scan the universe. With `asof`, every rule sees only bars up to that
+    date; bars after it are handed back through `futures_out` for the backtest
+    to score against, and never influence a signal."""
+    if frames is None:
+        frames = fetch_history(list(universe), period=period, asof=asof,
+                               forward_days=forward_days)
     setups: list[Setup] = []
 
-    for ticker, df in frames.items():
+    for ticker, full in frames.items():
+        df, future = split_asof(full, asof)
+        if len(df) < 80:
+            continue
+        if futures_out is not None:
+            futures_out[ticker] = future
         try:
             conf = confluence(df)
         except Exception:  # noqa: BLE001
@@ -482,6 +519,7 @@ def scan_universe(universe: dict[str, str], types: list[str], limit: int = 60,
     worst = min(kept, key=lambda s: s.pct_from_entry, default=None)
     return {
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "asof": asof.isoformat() if asof else None,
         "scanned": len(frames),
         "universe_size": len(universe),
         "types": types,

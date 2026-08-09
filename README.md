@@ -3,8 +3,8 @@
 Two Yahoo Finance tools that share one localhost app:
 
 - **SPX gamma dashboard** (`/`) — options positioning for the index.
-- **Setup scanner** (`/scanner`) — scans the **Nasdaq-100** (default) or the
-  S&P 500 for trade setups and posts them as a card grid.
+- **Setup scanner** (`/scanner`) — scans the **top 100 S&P 500 names** (default),
+  the full index, or the Nasdaq-100, and posts setups as a card grid.
 - **Paper portfolio** (`/portfolio`) — start with an amount of cash, take setups
   from the scanner, and track equity.
 
@@ -251,13 +251,21 @@ python3 scanner.py --refresh-universe    # re-read the index membership lists
 
 #### The universe
 
-The scanner defaults to the **Nasdaq-100**. Switch with the Universe control, or
-`--universe ndx | sp500 | both`.
+The scanner defaults to **`sp100`** — the 100 largest S&P 500 companies by
+market cap. Switch with the Universe control, or
+`--universe sp100 | sp500 | ndx | both`.
 
-**The two indexes do not resolve the same way, and the difference matters:**
+`sp100` is a *ranking* of the S&P 500, not a separate index, so it inherits the
+S&P's committed fallback and always resolves. Caps come from a live financials
+CSV, then the snapshot in `data/sp500.csv`, then Yahoo for anything still blank.
+A name with no cap sorts last and would silently drop out of a "largest 100"
+list, so any that remain unranked are named on stderr. Today that is `BF-B`
+alone, at roughly $14B — far outside the cut.
+
+**The other two indexes do not resolve the same way:**
 
 - **S&P 500** — a live CSV fetch, with all 503 constituents committed to
-  `data/sp500.csv` as a fallback. It always resolves, even offline.
+  `data/sp500.csv` as a fallback. Always resolves, even offline.
 - **Nasdaq-100** — the Wikipedia table only, which needs `lxml`. **There is no
   bundled fallback**, so if that fetch fails the scan stops with an error rather
   than running. That is deliberate: no free, reachable dataset publishes NDX
@@ -269,8 +277,8 @@ Membership is cached per index in `.universe_cache.json`; `--refresh-universe`
 re-reads it.
 
 
-A Nasdaq-100 scan pulls a year of daily bars for ~100 names; the S&P 500 is ~5×
-that and takes about a minute. `/api/scan` caches for 15 minutes.
+A 100-name scan pulls a year of daily bars for ~100 tickers; the full S&P 500 is
+~5× that and takes about a minute. `/api/scan` caches for 15 minutes.
 
 Filters sit in one row above the grid: rule, status, sort, minimum R:R at entry,
 and whether to show every rule that fired on a ticker or only its best-scoring

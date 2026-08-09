@@ -216,7 +216,7 @@ def api_scan():
     asof, err = _parse_asof(request.args.get("asof"))
     if err:
         return jsonify({"error": err}), 400
-    universe = request.args.get("universe", "ndx")
+    universe = request.args.get("universe", "sp100")
 
     key = ("scan", tuple(types), limit, asof, universe)
     now = time.time()
@@ -293,7 +293,7 @@ def api_backtest():
     forward = min(max(request.args.get("forward", 30, type=int), 1), 250)
     types = [t for t in request.args.get("types", "ote,ma,breakout").split(",") if t in SCANS]
     limit = min(max(request.args.get("limit", 200, type=int), 1), 500)
-    universe = request.args.get("universe", "ndx")
+    universe = request.args.get("universe", "sp100")
 
     key = ("backtest", asof, forward, tuple(types), limit, universe)
     now = time.time()
@@ -426,7 +426,7 @@ def api_portfolio_from_backtest():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    bt = json_safe(run_backtest(load_universe(which=body.get("universe", "ndx")), types, asof,
+    bt = json_safe(run_backtest(load_universe(which=body.get("universe", "sp100")), types, asof,
                                 forward, int(body.get("limit", 200))))
     try:
         p = from_backtest(bt, name, cash, float(body.get("risk_pct", 1.0)),
@@ -492,7 +492,7 @@ def api_replay_start(name: str):
         return jsonify({"error": err or "asof is required to start a replay"}), 400
     types = [t for t in (body.get("types") or ["ote", "ma", "breakout"]) if t in SCANS]
     p.replay = {"start": asof.isoformat(), "cursor": asof.isoformat(), "types": types,
-                "universe": body.get("universe", "ndx"), "days_elapsed": 0,
+                "universe": body.get("universe", "sp100"), "days_elapsed": 0,
                 "log": [{"day": asof.isoformat(), "text": f"replay started at {asof}"}]}
     # A fresh portfolio's opening point carries the wall clock, which is LATER
     # than every replay date and inverts the curve. Re-stamp it at the as-of

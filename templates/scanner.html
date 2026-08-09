@@ -281,9 +281,10 @@
     <div class="field">
       <label for="fUniverse">Universe</label>
       <select id="fUniverse">
+        <option value="sp100">Top 100 S&amp;P 500</option>
+        <option value="sp500">S&amp;P 500 (all 503)</option>
         <option value="ndx">Nasdaq-100</option>
-        <option value="sp500">S&amp;P 500</option>
-        <option value="both">both</option>
+        <option value="both">S&amp;P 500 + Nasdaq-100</option>
       </select>
     </div>
     <div class="field">
@@ -804,6 +805,7 @@ function drawIndex() {
 
 async function loadIndex() {
   const q = new URLSearchParams({ index: $("#fUniverse").value === "ndx" ? "^NDX" : "^GSPC" });
+  // sp100/sp500/both are all S&P universes, so the panel stays on ^GSPC
   const asof = asofParam();
   if (asof) q.set("asof", asof);
   try {

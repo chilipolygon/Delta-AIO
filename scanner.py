@@ -63,15 +63,94 @@ MAX_RANK = max(STATUS_RANK.values())
 # Universe
 # --------------------------------------------------------------------------
 
-INDEXES = ("ndx", "sp500", "both")
+INDEXES = ("sp100", "sp500", "ndx", "both")
+SP100_SIZE = 100
+
+
+def _norm_sym(s: str | None) -> str:
+    """Yahoo uses a dash for share classes; sources variously use . or /."""
+    return (s or "").strip().upper().replace(".", "-").replace("/", "-")
+
+
+def _load_bundled_rows() -> list[dict]:
+    if not BUNDLED_SP500.exists():
+        return []
+    with BUNDLED_SP500.open(newline="") as f:
+        return [r for r in csv.DictReader(f) if r.get("symbol")]
 
 
 def _load_bundled() -> dict[str, str]:
     """The committed S&P 500 list. Always available, no network, no lxml."""
-    if not BUNDLED_SP500.exists():
-        return {}
-    with BUNDLED_SP500.open(newline="") as f:
-        return {r["symbol"]: r["name"] for r in csv.DictReader(f) if r.get("symbol")}
+    return {r["symbol"]: r["name"] for r in _load_bundled_rows()}
+
+
+def _fetch_caps() -> dict[str, float]:
+    """Market caps for the S&P 500, used only to rank the top 100."""
+    url = ("https://raw.githubusercontent.com/datasets/s-and-p-500-companies-financials"
+           "/main/data/constituents-financials.csv")
+    with urllib.request.urlopen(url, timeout=30) as r:
+        text = r.read().decode("utf-8")
+    out = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        sym = _norm_sym(row.get("Symbol"))
+        raw = (row.get("Market Cap") or "").strip()
+        if not sym or not raw:
+            continue
+        try:
+            cap = float(raw)
+        except ValueError:
+            continue
+        if cap > 0:
+            out[sym] = cap
+    return out
+
+
+def _caps_from_yahoo(tickers: list[str]) -> dict[str, float]:
+    """Market caps for names the CSV has no figure for. One request each, so it
+    runs only for the gaps -- but without it a blank row silently drops a real
+    company (Berkshire among them) out of a 'largest 100' ranking."""
+    out: dict[str, float] = {}
+    for t in tickers:
+        try:
+            cap = getattr(yf.Ticker(t).fast_info, "market_cap", None)
+            if cap:
+                out[t] = float(cap)
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _top_by_cap(names: dict[str, str], n: int = SP100_SIZE) -> dict[str, str]:
+    """The n largest by market cap. Live caps if reachable, else the snapshot
+    committed alongside the constituent list."""
+    caps: dict[str, float] = {}
+    try:
+        caps = _fetch_caps()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ! live market caps unavailable ({exc}); using the bundled snapshot",
+              file=sys.stderr)
+    if not caps:
+        caps = {r["symbol"]: float(r.get("market_cap") or 0) for r in _load_bundled_rows()}
+
+    # top up from the bundled snapshot, then from Yahoo for whatever is still blank
+    bundled = {r["symbol"]: float(r.get("market_cap") or 0) for r in _load_bundled_rows()}
+    for t in names:
+        if not caps.get(t) and bundled.get(t):
+            caps[t] = bundled[t]
+    gaps = sorted(t for t in names if not caps.get(t))
+    if gaps:
+        print(f"  filling {len(gaps)} missing market caps from Yahoo…", file=sys.stderr)
+        caps.update(_caps_from_yahoo(gaps))
+
+    ranked = sorted(names, key=lambda t: -caps.get(t, 0.0))
+    still = [t for t in names if not caps.get(t)]
+    if still:
+        # A name with no cap sorts last and never makes the cut. Say so rather
+        # than let a real company vanish from a "largest 100" ranking unnoticed.
+        print(f"  ! {len(still)} constituents still have no market cap, so they cannot be "
+              f"ranked and are excluded from the top {n}: {', '.join(still[:10])}"
+              f"{'…' if len(still) > 10 else ''}", file=sys.stderr)
+    return {t: names[t] for t in ranked[:n]}
 
 
 def _fetch_sp500_csv() -> dict[str, str]:
@@ -83,7 +162,7 @@ def _fetch_sp500_csv() -> dict[str, str]:
         text = r.read().decode("utf-8")
     out = {}
     for row in csv.DictReader(io.StringIO(text)):
-        sym = (row.get("Symbol") or "").strip().upper().replace(".", "-")
+        sym = _norm_sym(row.get("Symbol"))
         if sym:
             out[sym] = (row.get("Security") or sym).strip()
     if len(out) < 400:
@@ -100,7 +179,7 @@ def _read_wiki_table(url: str, symbol_col: str, name_col: str) -> dict[str, str]
         if symbol_col in cols and name_col in cols:
             out = {}
             for sym, name in zip(t[symbol_col], t[name_col]):
-                sym = str(sym).strip().upper().replace(".", "-")  # BRK.B -> BRK-B
+                sym = _norm_sym(sym)  # BRK.B / BRK/B -> BRK-B
                 if sym and sym != "NAN":
                     out[sym] = str(name).strip()
             if out:
@@ -138,8 +217,9 @@ def _write_cache(cache: dict) -> None:
 def load_universe(refresh: bool = False, which: str = "ndx") -> dict[str, str]:
     """Ticker -> company name for the requested index.
 
-    `which` is "ndx" (default), "sp500", or "both". Membership is cached per
-    index so switching between them does not refetch.
+    `which` is "sp100" (default -- the 100 largest S&P 500 names by market cap),
+    "sp500", "ndx", or "both". Membership is cached per index so switching
+    between them does not refetch.
 
     The S&P 500 has a committed fallback in data/sp500.csv, so it always
     resolves. The Nasdaq-100 does NOT: the only reachable source is the
@@ -148,9 +228,11 @@ def load_universe(refresh: bool = False, which: str = "ndx") -> dict[str, str]:
     correct with junk tickers in it, and silently scanning the wrong 100 names
     is worse than failing loudly.
     """
-    which = which if which in INDEXES else "ndx"
+    which = which if which in INDEXES else "sp100"
     cache = {} if refresh else _read_cache()
-    want = ["sp500", "ndx"] if which == "both" else [which]
+    # sp100 is a ranking of sp500, not a separate membership list
+    want = ["sp500", "ndx"] if which == "both" else \
+        ["sp500"] if which == "sp100" else [which]
 
     for key in want:
         if cache.get(key):
@@ -172,6 +254,8 @@ def load_universe(refresh: bool = False, which: str = "ndx") -> dict[str, str]:
     out: dict[str, str] = {}
     for key in want:
         out.update(cache.get(key) or {})
+    if which == "sp100" and out:
+        out = _top_by_cap(out)
     if not out:
         raise RuntimeError(
             f"could not resolve the {which} universe. The Nasdaq-100 needs the Wikipedia "
@@ -619,8 +703,8 @@ def main():
     p.add_argument("--html", metavar="PATH", help="write a static HTML card grid")
     p.add_argument("--json", metavar="PATH", help="write the raw scan result as JSON")
     p.add_argument("--refresh-universe", action="store_true", help="re-read the index lists")
-    p.add_argument("--universe", default="ndx", choices=list(INDEXES),
-                   help="which index to scan (default: ndx)")
+    p.add_argument("--universe", default="sp100", choices=list(INDEXES),
+                   help="which universe to scan (default: sp100, the 100 largest S&P 500 names)")
     args = p.parse_args()
 
     types = [t.strip() for t in args.types.split(",") if t.strip() in SCANS]

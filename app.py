@@ -31,7 +31,7 @@ from index_signal import INDEX_PROXY, index_signal
 from options_flow import exposure_profile, profile_payload
 from regime import classify_regime
 from scanner import SCANS, load_universe, scan_universe
-from spx_dashboard import NY_TZ, build_report
+from spx_dashboard import NY_TZ, build_report, market_status
 
 app = Flask(__name__)
 
@@ -54,30 +54,6 @@ def _parse_asof(raw: str | None):
     if d >= datetime.now(tz=NY_TZ).date():
         return None, f"asof must be a past date (got {d})"
     return d, None
-
-
-def market_status() -> dict:
-    """Rough US equity session state, used to pause auto-refresh out of hours.
-    Weekends and clock only -- market holidays are not tracked."""
-    now = datetime.now(tz=NY_TZ)
-    minutes = now.hour * 60 + now.minute
-    weekday = now.weekday() < 5
-    open_m, close_m = 9 * 60 + 30, 16 * 60
-    if not weekday:
-        state = "weekend"
-    elif minutes < 4 * 60:
-        state = "closed"
-    elif minutes < open_m:
-        state = "premarket"
-    elif minutes < close_m:
-        state = "open"
-    elif minutes < 20 * 60:
-        state = "afterhours"
-    else:
-        state = "closed"
-    return {"state": state, "is_open": state == "open",
-            "now": now.isoformat(timespec="seconds"),
-            "note": "holidays are not tracked"}
 
 
 _cache: dict[tuple, tuple[float, dict]] = {}

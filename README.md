@@ -1,12 +1,17 @@
 # Delta-AIO
 
-Two Yahoo Finance tools that share one localhost app:
+Yahoo Finance tools that share one localhost app:
 
 - **SPX gamma dashboard** (`/`) — options positioning for the index.
 - **Setup scanner** (`/scanner`) — scans the **top 100 S&P 500 names** (default),
   the full index, or the Nasdaq-100, and posts setups as a card grid.
 - **Paper portfolio** (`/portfolio`) — start with an amount of cash, take setups
   from the scanner, and track equity.
+
+…plus one that runs on its own, without the web app:
+
+- **Watch-list bot** (`watchbot.py`) — polls the names you are tracking and
+  posts to Discord when one reaches its entry, takes a target or breaks its stop.
 
 ```
 pip install -r requirements.txt
@@ -313,6 +318,90 @@ one. A table view carries every number on the cards.
 
 **These levels are derived by rule, not judgement.** They are daily-bar
 approximations and say nothing about whether a trade is a good idea.
+
+---
+
+# Watch-list bot
+
+Keeping a watch list means checking the same handful of prices over and over
+against levels you already decided on. `watchbot.py` does the checking and
+speaks up only when something changes.
+
+```
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/…"
+
+python3 watchbot.py add NIO --entry 4.58 --stop 4.30 --targets 5,5.5
+python3 watchbot.py add RGTI --auto        # levels from the scanner rules
+python3 watchbot.py import --index sp100   # take the scanner's best setups
+python3 watchbot.py list
+python3 watchbot.py run                    # poll, alert, repeat
+```
+
+A **Discord webhook** is all the setup there is: channel → Edit Channel →
+Integrations → Webhooks → New Webhook → Copy URL. Put it in
+`DISCORD_WEBHOOK_URL` (or pass `--webhook`), and set the webhook's name and
+avatar in Discord to name the bot.
+
+### What it says
+
+Four things get announced, each as an embed carrying the price that triggered it:
+
+| Alert | Fires when |
+|---|---|
+| **approaching entry** | price is within `--near` (default 1.5%) of the entry zone |
+| **in entry zone** | price is inside it — the actionable one, with the stop and first target |
+| **target hit** | a new rung of the target ladder printed |
+| **stopped out** | price broke the stop |
+
+A name that is simply sitting somewhere unremarkable says nothing at all.
+
+### Saying it once
+
+The bot alerts on **changes of state**, not on every poll — a name resting in
+its entry zone does not re-announce itself every 60 seconds. Around that:
+
+- A state that persists is repeated every `--repeat-after` minutes (default 30),
+  so something actionable does not scroll away and get forgotten. `0` turns
+  repeats off.
+- One-off events — a printed target, a broken stop — are said **once**. Targets
+  ratchet on a high-water mark, so a wobble back through T1 does not re-fire it.
+- State lives in `data/watch_state.json`, so a restart mid-session picks up
+  where it left off instead of replaying the morning. `--silent-start` comes up
+  quieter still, seeding state without alerting on what is already true.
+
+### The list
+
+A watch is the same shape as a scanner setup — an entry zone, a stop and a
+target ladder — so setups move onto the list untouched, and the wording lines up
+with the status the scanner already gives them. Three ways to fill it:
+
+- **By hand** — `add TICKER --entry --stop --targets`. The entry zone defaults
+  to ±0.5% around the entry; `--zone LO:HI` sets it explicitly.
+- **`--auto`** — runs the scanner's rules over that one name and adopts whatever
+  they produce.
+- **`import`** — takes the best setups off a full scan, filtered by status
+  (`--status "IN ENTRY ZONE,COILING"`, or `any`).
+
+The list is `data/watchlist.json`. Both it and the alert state are gitignored:
+they are yours, not the repo's.
+
+```
+python3 watchbot.py run --once --console   # one pass, printed, nothing sent
+python3 watchbot.py run --interval 30 --near 1 --repeat-after 15
+python3 watchbot.py run --hours extended   # include pre/post market
+python3 watchbot.py test                   # post a sample alert to the webhook
+python3 watchbot.py rm NIO
+```
+
+Polling is limited to regular market hours by default (`--hours open`);
+`extended` adds pre- and post-market, `always` ignores the clock. Out of hours
+the bot idles without touching the network. Quotes are one batched request for
+the whole list per poll, so a 20-name list at `--interval 60` is 20 quotes a
+minute in a single call — but nothing here is rate-limit-aware about Yahoo, and
+a very short interval on a long list is a good way to get throttled.
+
+**The bot watches levels you gave it. It does not judge them**, and it routes
+nothing to a broker.
 
 ---
 

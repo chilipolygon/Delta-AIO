@@ -31,6 +31,31 @@ NY_TZ = ZoneInfo("America/New_York")
 MIN_T_YEARS = (5 / 60) / (365.25 * 24)  # floor time-to-expiry at 5 minutes
 
 
+def market_status() -> dict:
+    """Rough US equity session state, used to pause the dashboard's auto-refresh
+    and the watch bot's polling out of hours.
+    Weekends and clock only -- market holidays are not tracked."""
+    now = datetime.now(tz=NY_TZ)
+    minutes = now.hour * 60 + now.minute
+    weekday = now.weekday() < 5
+    open_m, close_m = 9 * 60 + 30, 16 * 60
+    if not weekday:
+        state = "weekend"
+    elif minutes < 4 * 60:
+        state = "closed"
+    elif minutes < open_m:
+        state = "premarket"
+    elif minutes < close_m:
+        state = "open"
+    elif minutes < 20 * 60:
+        state = "afterhours"
+    else:
+        state = "closed"
+    return {"state": state, "is_open": state == "open",
+            "now": now.isoformat(timespec="seconds"),
+            "note": "holidays are not tracked"}
+
+
 # --------------------------------------------------------------------------
 # Data fetch helpers
 # --------------------------------------------------------------------------

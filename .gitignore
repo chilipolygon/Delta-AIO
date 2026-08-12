@@ -3,3 +3,5 @@ __pycache__/
 .universe_cache.json
 setups.html
 data/portfolios/
+data/watchlist.json
+data/watch_state.json
